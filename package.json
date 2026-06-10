@@ -1,0 +1,31 @@
+{
+  "name": "ai-usage-checkup",
+  "productName": "AI Usage Checkup",
+  "version": "0.3.0",
+  "description": "Claude Code 사용 패턴 분석 + opus 코칭 데스크탑 앱",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc && cp src/renderer/index.html src/renderer/style.css dist/renderer/",
+    "start": "npm run build && electron .",
+    "cli": "node dist/core/cli.js",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.tnew.ai-usage-checkup",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "electron": "^41.7.1",
+    "typescript": "^6.0.3"
+  }
+}
