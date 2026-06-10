@@ -16,8 +16,12 @@
       "dist/**/*",
       "package.json"
     ],
+    "directories": {
+      "output": "release"
+    },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "identity": null
     },
     "win": {
       "target": "nsis"
@@ -26,6 +30,7 @@
   "devDependencies": {
     "@types/node": "^25.9.2",
     "electron": "^41.7.1",
+    "electron-builder": "^26.15.2",
     "typescript": "^6.0.3"
   }
 }
