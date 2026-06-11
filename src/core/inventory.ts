@@ -19,18 +19,27 @@ export function buildInventory(
     // 없으면 exists=false 그대로
   }
 
+  // cwd부터 home까지 거슬러 올라가며 CLAUDE.md를 찾는다. woowa_course/CLAUDE.md 처럼
+  // 상위 폴더에 둔 규칙도 하위 세션이 상속하므로 "있다"로 본다.
   const projectClaudeMds = topProjects.map(({ project, cwd }) => {
-    let has = false;
-    let bytes = 0;
-    try {
-      const st = fs.statSync(path.join(cwd, 'CLAUDE.md'));
-      has = true;
-      bytes = st.size;
-    } catch {
-      // 없는 프로젝트는 has=false
+    let dir = cwd;
+    while (dir.startsWith(home)) {
+      try {
+        const st = fs.statSync(path.join(dir, 'CLAUDE.md'));
+        return { project, cwd, has: true, bytes: st.size, foundAt: dir };
+      } catch {
+        // 이 층엔 없음 → 한 단계 위로
+      }
+      if (dir === home) break;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
     }
-    return { project, cwd, has, bytes };
+    return { project, cwd, has: false, bytes: 0 };
   });
+
+  // 커스텀 슬래시 커맨드: ~/.claude/commands 의 *.md 개수
+  const customCommands = safeReaddir(path.join(home, '.claude', 'commands')).filter((f) => f.endsWith('.md')).length;
 
   const skills: Inventory['skills'] = [];
   const skillsDir = path.join(home, '.claude', 'skills');
@@ -69,7 +78,7 @@ export function buildInventory(
     // settings.json이 없거나 깨져 있으면 훅 없음으로 둔다
   }
 
-  return { globalClaudeMd, projectClaudeMds, skills, hooks };
+  return { globalClaudeMd, projectClaudeMds, skills, hooks, customCommands };
 }
 
 function safeReaddir(dir: string): string[] {

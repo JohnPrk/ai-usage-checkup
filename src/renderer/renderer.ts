@@ -1,6 +1,5 @@
 // DOM lib에 동명의 Report 인터페이스가 있어 UsageReport로 구분한다
 type UsageReport = Awaited<ReturnType<typeof window.api.analyze>>;
-type Coaching = Awaited<ReturnType<typeof window.api.coach>>;
 
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
@@ -30,8 +29,8 @@ function fmtUSD(n: number): string {
 
 // ---- 차트 공통 ----
 
-const PALETTE = ['#3c5374', '#25683f', '#9c5a06', '#a63434', '#5b5a8c', '#2f6d6a', '#7a4a64', '#b08968'];
-const GRAY = '#9a978f';
+const PALETTE = ['#4a78d0', '#2ea35c', '#e0902a', '#e35d54', '#8268d8', '#26b3a8', '#d364a0', '#caa23f'];
+const GRAY = '#a8a59c';
 
 // '기타' 류는 항상 회색으로 고정해, 색이 의미를 갖게 한다
 function colorFor(name: string, i: number): string {
@@ -49,7 +48,7 @@ interface DonutPart {
 function donutSVG(parts: DonutPart[], centerValue: string, centerLabel: string): string {
   const total = parts.reduce((a, p) => a + p.value, 0);
   if (total <= 0) return '';
-  const R = 44;
+  const R = 56;
   const C = 2 * Math.PI * R;
   let acc = 0;
   const segs = parts
@@ -58,15 +57,15 @@ function donutSVG(parts: DonutPart[], centerValue: string, centerLabel: string):
       acc += p.value;
       const len = (p.value / total) * C;
       if (len < 0.8) return ''; // 너무 얇은 조각은 그리지 않는다 (목록에는 남음)
-      return `<circle r="${R}" cx="66" cy="66" fill="none" stroke="${p.color}" stroke-width="15"
-        stroke-dasharray="${Math.max(0.5, len - 1.4).toFixed(2)} ${C.toFixed(2)}"
+      return `<circle r="${R}" cx="80" cy="80" fill="none" stroke="${p.color}" stroke-width="18"
+        stroke-dasharray="${Math.max(0.5, len - 1.6).toFixed(2)} ${C.toFixed(2)}"
         stroke-dashoffset="${(-off * C).toFixed(2)}"><title>${esc(p.tip)}</title></circle>`;
     })
     .join('');
-  return `<svg viewBox="0 0 132 132" role="img">
-    <g transform="rotate(-90 66 66)">${segs}</g>
-    <text x="66" y="63" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">${esc(centerValue)}</text>
-    <text x="66" y="79" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(centerLabel)}</text>
+  return `<svg viewBox="0 0 160 160" role="img">
+    <g transform="rotate(-90 80 80)">${segs}</g>
+    <text x="80" y="76" text-anchor="middle" font-size="23" font-weight="700" fill="var(--ink)">${esc(centerValue)}</text>
+    <text x="80" y="95" text-anchor="middle" font-size="11.5" fill="var(--muted)">${esc(centerLabel)}</text>
   </svg>`;
 }
 
@@ -144,17 +143,35 @@ function dailyChartSVG(daily: { date: string; tokens: number }[]): string {
 
 // 도구를 성격별로 묶어 색을 입힌다. 이름만으로는 뭐 하는 도구인지 안 보여서.
 const TOOL_GROUPS: { label: string; color: string; re: RegExp }[] = [
-  { label: '읽기·탐색', color: '#25683f', re: /^(Read|Grep|Glob|LS|NotebookRead|WebFetch|WebSearch)$/ },
-  { label: '파일 수정', color: '#3c5374', re: /^(Edit|Write|NotebookEdit)$/ },
-  { label: '터미널', color: '#9c5a06', re: /^Bash$/ },
-  { label: '작업·대화', color: '#5b5a8c', re: /^(Task\w*|TodoWrite|AskUserQuestion|Skill|Agent|ToolSearch|ExitPlanMode|EnterPlanMode)$/ },
-  { label: 'MCP 연동', color: '#2f6d6a', re: /^mcp__/ },
+  { label: '읽기·탐색', color: '#2ea35c', re: /^(Read|Grep|Glob|LS|NotebookRead|WebFetch|WebSearch)$/ },
+  { label: '파일 수정', color: '#4a78d0', re: /^(Edit|Write|NotebookEdit)$/ },
+  { label: '터미널', color: '#e0902a', re: /^Bash$/ },
+  { label: '작업·대화', color: '#8268d8', re: /^(Task\w*|TodoWrite|AskUserQuestion|Skill|Agent|ToolSearch|ExitPlanMode|EnterPlanMode)$/ },
+  { label: 'MCP 연동', color: '#26b3a8', re: /^mcp__/ },
 ];
 const TOOL_OTHER = { label: '기타', color: GRAY };
 
 function toolGroup(name: string): { label: string; color: string } {
   for (const g of TOOL_GROUPS) if (g.re.test(name)) return g;
   return TOOL_OTHER;
+}
+
+function groupColor(label: string): string {
+  return TOOL_GROUPS.find((g) => g.label === label)?.color ?? TOOL_OTHER.color;
+}
+
+// 구버전 스냅샷(toolGroups 없음)용: 상위 도구만으로 성격별 비중을 근사한다
+function groupsFromTop(tools: { name: string; n: number }[]): { label: string; n: number; pct: number }[] {
+  const m = new Map<string, number>();
+  let total = 0;
+  for (const t of tools) {
+    total += t.n;
+    const label = toolGroup(t.name).label;
+    m.set(label, (m.get(label) ?? 0) + t.n);
+  }
+  return [...m.entries()]
+    .map(([label, n]) => ({ label, n, pct: total > 0 ? Math.round((n / total) * 100) : 0 }))
+    .sort((a, b) => b.n - a.n);
 }
 
 function shortModel(m: string): string {
@@ -179,6 +196,7 @@ async function analyze(): Promise<void> {
   btn.textContent = '분석 중…';
   $('report').classList.add('hidden');
   $('onboarding').classList.add('hidden');
+  $('home').classList.add('hidden');
   $('progress').classList.remove('hidden');
   $('subtitle').textContent = '최근 30일 기록을 읽는 중…';
   try {
@@ -205,30 +223,23 @@ function render(r: UsageReport, snapshotDate?: string): void {
     return;
   }
   $('onboarding').classList.add('hidden');
+  $('home').classList.add('hidden');
+  $('doc-actions').classList.remove('hidden');
   $('subtitle').textContent = snapshotDate
     ? `${snapshotDate} 저장본 · 세션 ${r.sessions.toLocaleString()}개`
     : `분석일 ${r.generatedAt.slice(0, 10)} · 최근 ${r.days}일 · 세션 ${r.sessions.toLocaleString()}개`;
 
   renderLevel(r);
   renderAxes(r);
+  renderCriteria(r);
   renderMetrics(r);
   renderDaily(r);
   renderModelMix(r);
   renderCategories(r);
   renderActivities(r);
   renderInventory(r);
+  renderFeatureCoverage(r);
   renderRecs($('recs'), r.recommendations, false);
-
-  const coachBtn = $('btn-coach') as HTMLButtonElement;
-  if (snapshotDate) {
-    // 코칭은 방금 분석한 리포트(메인 프로세스 메모리)를 쓰므로 저장본에서는 막는다
-    coachBtn.disabled = true;
-    $('coach-body').innerHTML =
-      '<p class="hint">저장본에서는 코칭을 새로 부를 수 없어요. 다시 분석한 뒤 이용해주세요.</p>';
-  } else {
-    coachBtn.disabled = false;
-    $('coach-body').innerHTML = '';
-  }
 
   $('meta').textContent =
     `파일 ${r.files}개 · 건너뛴 라인 ${r.skippedLines.toLocaleString()}개 · ` +
@@ -239,6 +250,8 @@ function render(r: UsageReport, snapshotDate?: string): void {
 
 function renderOnboarding(r: UsageReport): void {
   $('report').classList.add('hidden');
+  $('home').classList.add('hidden');
+  $('doc-actions').classList.remove('hidden');
   $('subtitle').textContent = '분석할 기록이 없어요';
   const steps = $('onboarding-steps');
   const hasBinary = !!r.env.claudeBinary;
@@ -275,18 +288,56 @@ function renderLevel(r: UsageReport): void {
 
 function renderAxes(r: UsageReport): void {
   $('radar').innerHTML = radarSVG(r.scores);
-  // desc/detail: 축이 뭘 재는지 + 이번 측정의 실제 입력값 (구버전 스냅샷에는 없어서 막대만 그린다)
+  // desc는 항상 보이고, 실제 수치(detail)는 번잡해서 기본 접어둔다 → 클릭하면 펼침 (구버전 스냅샷엔 detail 없음)
   $('axes').innerHTML = r.scores
-    .map(
-      (s) => `
-    <div class="axis-item">
+    .map((s) => {
+      const hasDetail = !!s.detail;
+      const toggle = hasDetail ? ' <span class="axis-toggle">수치 <span class="arrow">▾</span></span>' : '';
+      const sub = s.desc || hasDetail ? `<div class="axis-sub">${esc(s.desc ?? '')}${toggle}</div>` : '';
+      return `
+    <div class="axis-item${hasDetail ? ' has-detail' : ''}">
       <div class="axis-row">
         <span class="name">${esc(s.axis)}</span>
         <div class="track"><div class="fill" style="width:${s.score}%"></div></div>
         <span class="val">${s.score}점</span>
       </div>
-      ${s.desc ? `<div class="axis-sub">${esc(s.desc)}</div>` : ''}
-      ${s.detail ? `<div class="axis-detail">${esc(s.detail)}</div>` : ''}
+      ${sub}
+      ${hasDetail ? `<div class="axis-detail">${esc(s.detail!)}</div>` : ''}
+    </div>`;
+    })
+    .join('');
+}
+
+// 점수 기준 팝업: 리포트에 실린 그 시점의 기준을 그대로 보여준다 (구버전 스냅샷에는 없어 버튼을 숨긴다)
+function renderCriteria(r: UsageReport): void {
+  const btn = $('btn-criteria');
+  const crits = r.scoreCriteria;
+  if (!crits || crits.length === 0) {
+    btn.classList.add('hidden');
+    return;
+  }
+  btn.classList.remove('hidden');
+  $('criteria-body').innerHTML = crits
+    .map(
+      (c) => `
+    <div class="crit">
+      <p class="crit-axis">${esc(c.axis)}<span class="crit-what">${esc(c.what)}</span></p>
+      <p class="crit-base">${esc(c.base)}</p>
+      <ul>
+        ${c.gains.map((g) => `<li class="crit-gain">+ ${esc(g)}</li>`).join('')}
+        ${c.penalties.map((p) => `<li class="crit-pen">− ${esc(p)}</li>`).join('')}
+      </ul>
+      ${
+        c.sources && c.sources.length
+          ? `<div class="crit-src"><span class="crit-src-h">근거</span><ul>${c.sources
+              .map(
+                (s) =>
+                  `<li><a class="crit-src-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.label)}</a><span class="crit-src-g">${esc(s.grounds)}</span></li>`
+              )
+              .join('')}</ul></div>`
+          : ''
+      }
+      ${c.calibrationNote ? `<p class="crit-cal">${esc(c.calibrationNote)}</p>` : ''}
     </div>`
     )
     .join('');
@@ -360,25 +411,44 @@ function renderCategories(r: UsageReport): void {
     '세션'
   );
   $('categories').innerHTML = r.categories
-    .map((c, i) => {
-      // 이 분야가 실제 어떤 폴더의 세션인지 펼쳐 보여준다
-      let sub = '';
-      if (c.projects && c.projects.length) {
-        const shown = c.projects.map((p) => `${esc(p.name)} ${p.sessions}`).join(' · ');
-        const rest = c.sessions - c.projects.reduce((a, p) => a + p.sessions, 0);
-        sub = `<p class="leg-sub">${shown}${rest > 0 ? ` · 그 외 ${rest}회` : ''}</p>`;
-      }
-      return `
+    .map(
+      (c, i) => `
     <div class="leg-row">
       <div class="leg-head">
         <span class="dot" style="background:${colorFor(c.name, i)}"></span>
         <span class="leg-name">${esc(c.name)}</span>
         <span class="leg-val">${c.pct}% · ${c.sessions}회</span>
       </div>
-      ${sub}
-    </div>`;
-    })
+    </div>`
+    )
     .join('');
+
+  // 프로젝트 '결' (우테코 미션 vs 개인 프로젝트) — 그래프 없이 작은 행으로
+  const pt = r.projectTypes ?? [];
+  const ptEl = $('project-types');
+  if (pt.length) {
+    ptEl.classList.remove('hidden');
+    ptEl.innerHTML =
+      `<p class="ptype-title">프로젝트 종류 <span class="hint">세션이 열린 폴더 기준</span></p>` +
+      pt
+        .map((t) => {
+          const subs = t.projects ?? [];
+          const shown = subs.map((p) => `${esc(p.name)} ${p.sessions}`).join(' · ');
+          const rest = t.sessions - subs.reduce((a, p) => a + p.sessions, 0);
+          const sub = shown ? `<p class="ptype-sub">${shown}${rest > 0 ? ` · 그 외 ${rest}` : ''}</p>` : '';
+          return `
+      <div class="ptype-item">
+        <div class="ptype-row">
+          <span class="ptype-name">${esc(t.label)}</span>
+          <span class="ptype-val">${t.pct}% · ${t.sessions}회</span>
+        </div>
+        ${sub}
+      </div>`;
+        })
+        .join('');
+  } else {
+    ptEl.classList.add('hidden');
+  }
 }
 
 // 각 활동이 실제로 무엇을 뜻하는지 한 줄 설명 (분류 규칙과 1:1)
@@ -436,6 +506,18 @@ function renderActivities(r: UsageReport): void {
     })
     .join('');
   const tools = r.toolTop ?? [];
+
+  // 성격별 비중 요약 (전체 호출 기준). 신버전은 r.toolGroups, 구버전 스냅샷은 상위 도구로 폴백 집계
+  const groups = r.toolGroups?.length ? r.toolGroups : groupsFromTop(tools);
+  // 그래프 대신 한 줄 텍스트: 색점 + 라벨 + % (정확한 호출 수는 hover)
+  const gLine = groups
+    .map(
+      (g) =>
+        `<span class="tg-item" title="${esc(g.label)} ${g.n.toLocaleString()}회"><span class="tg-dot" style="background:${groupColor(g.label)}"></span>${esc(g.label)} <b>${g.pct}%</b></span>`
+    )
+    .join('<span class="tg-sep">·</span>');
+  $('tool-groups').innerHTML = `<p class="tool-mix">${gLine}</p>`;
+
   const maxN = Math.max(1, ...tools.map((t) => t.n));
   $('tool-top').innerHTML = tools
     .map((t) => {
@@ -472,24 +554,31 @@ function renderInventory(r: UsageReport): void {
   const inv = r.inventory;
   const kb = (b: number): string => (b >= 1024 ? (b / 1024).toFixed(1) + 'KB' : b + 'B');
 
-  // CLAUDE.md: 상태 점 + 작성 현황 요약
-  const mdRows = [
-    { name: '전역 ~/.claude', has: inv.globalClaudeMd.exists, bytes: inv.globalClaudeMd.bytes },
-    ...inv.projectClaudeMds.map((p) => ({ name: p.project, has: p.has, bytes: p.bytes })),
+  // CLAUDE.md: 바탕화면·홈에서 훑어 '있는 곳'만 보여준다. 상위 폴더 상속분(woowa_course 등)은 출처를 덧붙인다.
+  const mdScanned = [
+    { name: '전역 ~/.claude', has: inv.globalClaudeMd.exists, bytes: inv.globalClaudeMd.bytes, note: '' },
+    ...inv.projectClaudeMds.map((p) => ({
+      name: p.project,
+      has: p.has,
+      bytes: p.bytes,
+      note: p.has && p.foundAt && p.foundAt !== p.cwd ? `${p.foundAt.split('/').filter(Boolean).pop() ?? ''}/ 상속` : '',
+    })),
   ];
-  const mdDone = mdRows.filter((m) => m.has).length;
+  const mdShown = mdScanned.filter((m) => m.has);
   $('inv-claudemd').innerHTML =
-    `<p class="inv-sum">${mdDone}/${mdRows.length}곳 작성됨</p>` +
-    mdRows
-      .map(
-        (m) => `
-      <div class="inv-row">
-        <span class="st ${m.has ? 'on' : 'off'}"></span>
-        <span class="inv-name">${esc(m.name)}</span>
-        <span class="inv-val ${m.has ? 'ok' : 'dim'}">${m.has ? esc(kb(m.bytes)) : '없음'}</span>
+    `<p class="inv-sum">${mdShown.length}/${mdScanned.length}곳에 있음 <span class="hint">바탕화면·홈 탐색</span></p>` +
+    (mdShown.length
+      ? mdShown
+          .map(
+            (m) => `
+      <div class="inv-row"${m.note ? ` title="${esc(m.note)}"` : ''}>
+        <span class="st on"></span>
+        <span class="inv-name">${esc(m.name)}${m.note ? ` <span class="inv-note">${esc(m.note)}</span>` : ''}</span>
+        <span class="inv-val ok">${esc(kb(m.bytes))}</span>
       </div>`
-      )
-      .join('');
+          )
+          .join('')
+      : '<p class="hint">아직 CLAUDE.md가 없어요 — 자주 쓰는 폴더에 두면 매번 설명을 안 해도 돼요</p>');
 
   // 스킬: 호출 횟수를 미니 막대로
   const usedSkills = inv.skills.filter((s) => s.uses > 0).length;
@@ -522,6 +611,25 @@ function renderInventory(r: UsageReport): void {
         )
         .join('')
     : '<p class="hint">설정된 훅이 없어요<br/>반복 확인(린트·알림)을 자동화할 수 있어요</p>';
+}
+
+// 공식 기능 커버리지: 어떤 공식 기능을 쓰고 안 쓰는지 칩으로 (기능 활용도 점수의 근거). 구버전 스냅샷엔 없어 숨긴다
+function renderFeatureCoverage(r: UsageReport): void {
+  const el = $('feature-coverage');
+  const fc = r.featureCoverage;
+  if (!fc || !fc.length) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+  const used = fc.filter((f) => f.used).length;
+  el.innerHTML =
+    `<div class="fc-head"><span class="fc-title">공식 기능 ${used}/${fc.length} 사용</span><span class="hint">기능 활용도 점수의 기준 · 안 쓰는 기능을 켜면 점수가 올라요</span></div>` +
+    `<div class="fc-chips">` +
+    fc
+      .map((f) => `<span class="fc-chip ${f.used ? 'on' : 'off'}">${f.used ? '✓' : '＋'} ${esc(f.name)}</span>`)
+      .join('') +
+    `</div>`;
 }
 
 function renderRecs(
@@ -560,55 +668,36 @@ document.body.addEventListener('click', (e) => {
   }
 });
 
-async function coach(): Promise<void> {
-  const btn = $('btn-coach') as HTMLButtonElement;
-  btn.disabled = true;
-  const body = $('coach-body');
-  body.innerHTML = '<p class="spinner">opus가 사용 패턴을 읽는 중… (최대 3분)</p>';
-  let c: Coaching;
-  try {
-    c = await window.api.coach();
-  } catch (e) {
-    body.innerHTML = `<div class="error-box">호출 실패: ${esc(String(e))}</div>`;
-    btn.disabled = false;
-    return;
-  }
-  btn.disabled = false;
+// ---- 시작 페이지 + 이전 결과(스냅샷) ----
 
-  if (c.status === 'not_logged_in') {
-    body.innerHTML = `<div class="error-box">claude CLI가 로그인돼 있지 않아요. 터미널에서 <b>claude</b> 실행 → <b>/login</b> 한 번만 해주세요. (구독 계정 선택)</div>`;
-    return;
-  }
-  if (c.status === 'no_binary') {
-    body.innerHTML = `<div class="error-box">${esc(c.message ?? 'claude CLI를 찾지 못했어요.')}</div>`;
-    return;
-  }
-  if (c.status !== 'ok') {
-    body.innerHTML = `<div class="error-box">${esc(c.message ?? '알 수 없는 오류')}</div>`;
-    return;
-  }
+type SnapItem = Awaited<ReturnType<typeof window.api.history>>[number];
 
-  let html = '';
-  if (c.summary) html += `<div class="summary">${esc(c.summary)}</div>`;
-  html += '<div id="coach-recs"></div>';
-  if (c.promptRewrites && c.promptRewrites.length) {
-    html += '<p class="sub-title gap-top">내 프롬프트 다시 쓰기</p>';
-    html += c.promptRewrites
-      .map(
-        (rw) => `
-      <div class="rewrite">
-        <p><span class="score-pill">${rw.score}/10</span><span class="orig">${esc(rw.original)}</span></p>
-        <p><span class="arrow">→</span>${esc(rw.better)}</p>
-      </div>`
-      )
-      .join('');
-  }
-  body.innerHTML = html;
-  const recsEl = document.getElementById('coach-recs');
-  if (recsEl && c.recommendations) renderRecs(recsEl, c.recommendations, true);
+// 분석 결과 대신 시작 화면을 보여준다 (앱 첫 진입, 제목 클릭)
+function showHome(): void {
+  $('report').classList.add('hidden');
+  $('onboarding').classList.add('hidden');
+  $('progress').classList.add('hidden');
+  $('doc-actions').classList.add('hidden');
+  $('home').classList.remove('hidden');
+  $('subtitle').textContent = '시작하려면 분석하기를 눌러주세요';
 }
 
-// ---- 이전 결과(스냅샷) ----
+function renderHomeHistory(items: SnapItem[]): void {
+  const wrap = $('home-history');
+  if (!items.length) {
+    wrap.innerHTML = '<p class="muted">아직 저장된 결과가 없어요. 분석하기를 눌러 시작하세요.</p>';
+    return;
+  }
+  wrap.innerHTML = items
+    .map(
+      (it) => `
+      <button class="home-snap" data-date="${esc(it.date)}">
+        <span class="home-snap-date">${esc(it.date)}</span>
+        <span class="home-snap-meta">평균 ${it.avgScore}점 · 세션 ${it.sessions.toLocaleString()}개 · 토큰 ${fmtTokens(it.totalTokens)}</span>
+      </button>`
+    )
+    .join('');
+}
 
 async function loadHistory(): Promise<void> {
   const sel = $('history-select') as HTMLSelectElement;
@@ -619,6 +708,7 @@ async function loadHistory(): Promise<void> {
       '<option value="">이전 결과</option>' +
       items.map((it) => `<option value="${it.date}">${it.date} · 평균 ${it.avgScore}점</option>`).join('');
     sel.value = current && items.some((i) => i.date === current) ? current : '';
+    renderHomeHistory(items);
   } catch {
     // 목록 실패는 치명적이지 않다
   }
@@ -635,8 +725,28 @@ $('history-select').addEventListener('change', () => {
   if (sel.value) void viewSnapshot(sel.value);
 });
 $('btn-analyze').addEventListener('click', () => void analyze());
-$('btn-coach').addEventListener('click', () => void coach());
+$('btn-home-analyze').addEventListener('click', () => void analyze());
+$('app-title').addEventListener('click', () => showHome());
+// 시작 화면의 이전 결과 카드 클릭 → 그 저장본 열기
+$('home-history').addEventListener('click', (e) => {
+  const card = (e.target as HTMLElement).closest('.home-snap') as HTMLElement | null;
+  if (card?.dataset.date) void viewSnapshot(card.dataset.date);
+});
+// 축의 실제 수치는 클릭하면 펼쳐진다
+$('axes').addEventListener('click', (e) => {
+  const item = (e.target as HTMLElement).closest('.axis-item.has-detail') as HTMLElement | null;
+  if (item) item.classList.toggle('show-detail');
+});
+// (작업 의도별 세션은 하위 프로젝트를 펼치지 않는다 — '프로젝트 종류'로 대체)
+$('btn-criteria').addEventListener('click', () => $('criteria-modal').classList.remove('hidden'));
+$('btn-criteria-close').addEventListener('click', () => $('criteria-modal').classList.add('hidden'));
+$('criteria-modal').addEventListener('click', (e) => {
+  if (e.target === $('criteria-modal')) $('criteria-modal').classList.add('hidden');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') $('criteria-modal').classList.add('hidden');
+});
 
-// 앱을 열면 바로 분석한다
+// 앱을 열면 시작 화면을 보여준다 (분석은 사용자가 직접 시작)
 void loadHistory();
-void analyze();
+showHome();

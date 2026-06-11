@@ -10,16 +10,41 @@
   <div class="sheet">
     <header class="doc-head">
       <div>
-        <h1>AI 성적표</h1>
+        <h1 id="app-title" title="시작 화면으로">AI 성적표</h1>
         <p id="subtitle">불러오는 중…</p>
       </div>
-      <div class="doc-actions">
+      <div class="doc-actions hidden" id="doc-actions">
         <select id="history-select">
           <option value="">이전 결과</option>
         </select>
         <button id="btn-analyze" class="primary">다시 분석</button>
       </div>
     </header>
+
+    <section id="home" class="hidden">
+      <div class="home-hero">
+        <p class="home-eyebrow">CLAUDE CODE 사용 진단</p>
+        <h2 class="home-title">내 AI 사용 습관,<br />점수로 받아보기</h2>
+        <p class="home-lead">최근 30일 Claude Code 기록을 읽어 5가지 축으로 진단해요.<br />데이터는 내 컴퓨터의 <code>~/.claude</code>에서만 읽고, 밖으로 나가지 않아요.</p>
+        <button id="btn-home-analyze" class="primary home-cta">분석하기</button>
+      </div>
+
+      <div class="home-axes-block">
+        <h3 class="home-sec-title">이 5가지를 봐요</h3>
+        <div class="home-axes">
+          <div class="home-axis"><span class="ha-dot" style="background:#4a78d0"></span><div><b>프롬프트 구체성</b><span>맥락·제약을 담아 의도를 한 번에 전달하는가</span></div></div>
+          <div class="home-axis"><span class="ha-dot" style="background:#2ea35c"></span><div><b>학습 주도성</b><span>받은 답에 꼬리질문으로 파고드는가</span></div></div>
+          <div class="home-axis"><span class="ha-dot" style="background:#e0902a"></span><div><b>컨텍스트 운용</b><span>compact·clear로 끊어 토큰 낭비를 막는가</span></div></div>
+          <div class="home-axis"><span class="ha-dot" style="background:#e35d54"></span><div><b>비용·캐시 효율</b><span>같은 컨텍스트를 캐시에서 다시 읽는 비율</span></div></div>
+          <div class="home-axis"><span class="ha-dot" style="background:#8268d8"></span><div><b>기능 활용도</b><span>CLAUDE.md·스킬·훅·서브에이전트를 실제로 쓰는가</span></div></div>
+        </div>
+      </div>
+
+      <div class="home-history-block">
+        <h3 class="home-sec-title">이전 결과 <span class="hint">클릭하면 그날 저장본을 열어요</span></h3>
+        <div id="home-history" class="home-history"></div>
+      </div>
+    </section>
 
     <section id="progress" class="hidden">
       <div class="bar"><div id="bar-fill"></div></div>
@@ -34,7 +59,7 @@
 
     <main id="report" class="hidden">
       <section class="sec">
-        <h2 class="sec-title">1. 종합 판정</h2>
+        <h2 class="sec-title">1. 종합 판정 <button id="btn-criteria" class="info-badge hidden" title="점수 기준 보기" aria-label="점수 기준 보기">!</button></h2>
         <p id="level"></p>
         <div class="judge-grid">
           <div id="radar"></div>
@@ -59,9 +84,10 @@
         <h2 class="sec-title">3. 사용 내역</h2>
         <div class="cols2">
           <div>
-            <h3 class="sub-title">분야별 세션 <span class="hint">세션을 연 폴더 + 첫 요청 문구로 분류</span></h3>
+            <h3 class="sub-title">작업 의도별 세션 <span class="hint">세션 전체 대화 내용으로 분류 (폴더·첫 문장 안 씀)</span></h3>
             <div class="donut-wrap"><div id="cat-donut"></div></div>
             <div id="categories"></div>
+            <div id="project-types" class="ptypes"></div>
           </div>
           <div id="activities-block">
             <h3 class="sub-title">활동별 토큰 <span class="hint">각 응답이 쓴 도구·고친 파일로 추정</span></h3>
@@ -70,14 +96,19 @@
           </div>
         </div>
         <div id="tools-block">
-          <h3 class="sub-title gap-top">자주 쓴 도구 <span class="hint">호출 횟수 · 색은 도구 성격</span></h3>
-          <div id="tool-top"></div>
-          <div id="tool-legend" class="stack-legend"></div>
+          <h3 class="sub-title gap-top">자주 쓴 도구 <span class="hint">도구 성격별 호출 비중</span></h3>
+          <div id="tool-groups"></div>
+          <details id="tool-detail">
+            <summary>도구별 상세 보기 <span class="hint">호출 상위 12개</span></summary>
+            <div id="tool-top"></div>
+            <div id="tool-legend" class="stack-legend"></div>
+          </details>
         </div>
       </section>
 
       <section class="sec" id="inventory-card">
-        <h2 class="sec-title">4. 설정 자산 <span class="hint">훅은 실행 기록이 로그에 없어 구성만 표시</span></h2>
+        <h2 class="sec-title">4. 설정 자산 · 기능 활용</h2>
+        <div id="feature-coverage" class="feat-cov"></div>
         <div class="cols3">
           <div class="inv-col">
             <h3 class="sub-title">CLAUDE.md</h3>
@@ -88,7 +119,7 @@
             <div id="inv-skills"></div>
           </div>
           <div class="inv-col">
-            <h3 class="sub-title">훅</h3>
+            <h3 class="sub-title">훅 <span class="hint">설정만 표시</span></h3>
             <div id="inv-hooks"></div>
           </div>
         </div>
@@ -99,18 +130,21 @@
         <div id="recs"></div>
       </section>
 
-      <section class="sec">
-        <h2 class="sec-title">6. 심층 소견 <span class="hint">opus · 내 구독으로 1회 호출</span></h2>
-        <div class="coach-head">
-          <p class="hint">세션 첫 메시지 일부(최대 12개)와 위 통계만 전송돼요. 최대 3분 걸려요.</p>
-          <button id="btn-coach" disabled>코칭 받기</button>
-        </div>
-        <div id="coach-body"></div>
-      </section>
-
       <p class="footnote" id="meta"></p>
     </main>
   </div>
+
+  <div id="criteria-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="criteria-title">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="criteria-title" class="sec-title">점수 기준</h2>
+        <button id="btn-criteria-close" class="modal-close" aria-label="닫기">×</button>
+      </div>
+      <div id="criteria-body"></div>
+      <p class="footnote">모든 축은 최종 5~98점으로 잘려요. 가점마다 만점 기준(상한)이 있어서 한 신호가 점수를 독식하지 못해요.</p>
+    </div>
+  </div>
+
   <script src="./renderer.js"></script>
 </body>
 </html>

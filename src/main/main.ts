@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, screen, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { runAnalysis } from '../core/analyze';
@@ -9,15 +9,25 @@ let win: BrowserWindow | null = null;
 let lastReport: Report | null = null;
 
 function createWindow(): void {
+  // 시작 시 화면 가용 영역의 최대 높이로 띄운다 (폭은 문서 가독 폭 유지, 가로 중앙 정렬)
+  const { workArea } = screen.getPrimaryDisplay();
+  const winWidth = Math.min(1100, workArea.width);
   win = new BrowserWindow({
-    width: 1080,
-    height: 860,
+    width: winWidth,
+    height: workArea.height,
+    x: workArea.x + Math.max(0, Math.round((workArea.width - winWidth) / 2)),
+    y: workArea.y,
     minWidth: 880,
     minHeight: 640,
     title: 'AI 성적표',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
     },
+  });
+  // 근거 출처 링크(외부 http/https)는 앱 안에서 열지 않고 기본 브라우저로 넘긴다
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
   });
   // 렌더러 콘솔 에러는 메인 로그에 안 보이므로 stdout으로 흘려보낸다
   win.webContents.on('console-message', (ev) => {

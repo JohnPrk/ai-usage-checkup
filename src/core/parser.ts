@@ -41,6 +41,23 @@ const ACK_RE =
 const WHY_RE = /왜 |왜\?|이유|원리|어째서|왜냐|내부적으로|차이가? 뭐|뭐가 달라/;
 const CONFIRM_RE = /맞아\?|맞지\?|라는 ?거(야|지|네)?\?|란 ?거(야|지)?\?|거구나|인 ?건가\?/;
 const GRAB_RE = /^(근데|그럼 |그러면|그렇다면|아 |오 |잠깐|아니 그)/;
+// 구체성 보강(Best Practices): 지시가 구체 파일/경로/@ 를 지목하는가
+const FILE_REF_RE =
+  /@[\w./-]+|\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|java|kt|kts|go|rs|rb|swift|c|cc|cpp|h|hpp|sh|zsh|bash|sql|html?|css|scss|sass|less|json|md|ya?ml|toml|xml|vue|svelte|gradle|properties|txt|csv)\b|(?:^|[\s(])(?:src|app|lib|components?|pages?|dist|tests?|spec|core|utils?|scripts?)\//i;
+// 검증 보강(Best Practices "Give Claude a way to verify"): 테스트·빌드·검증 실행을 요청하는가
+const VERIFY_RE =
+  /테스트|test\b|빌드|build\b|컴파일|compile|린트|lint\b|타입\s?체크|typecheck|tsc\b|스크린샷|screenshot|돌려|실행(?:해|시켜)|검증|run the (?:tests?|build)/i;
+
+// 작업 의도 분류: 세션 전체 사람 메시지에서 어떤 의도가 몇 번 드러났는지 센다 (디렉토리·첫 문장이 아니라 내용으로 분류).
+// 구체적인 의도(버그·학습·글쓰기·환경·리팩토링)를 먼저 두고, '기능 개발'은 넓은 기본 의도라 마지막.
+const INTENT_RES: { name: string; re: RegExp }[] = [
+  { name: '버그 수정', re: /버그|에러|오류|안 ?(돼|되|나오|나와|먹|뜨|작동)|동작 ?안|실패(?:해|했|하)|깨[지졌]|터[지졌]|크래시|crash|exception|undefined|널 ?포인터|타입 ?에러|stack ?trace|고쳐|디버[그깅]|debug|문제[가 ]|이상[해하]|왜 안|재현/i },
+  { name: '리팩토링', re: /리팩[토터]|refactor|구조 ?(개선|변경|바꾸)|분리해|추출(?:해|하)|중복 ?(제거|줄)|네이밍|이름 ?(바꾸|변경|짓)|rename|깔끔(?:하게|히)|클린|clean ?up|모듈화|책임 ?분리/i },
+  { name: '학습·이해', re: /설명해|이해 ?(안|못|하고)|원리|개념|어떻게 ?(동작|작동|돌아가|구현|쓰)|차이[가 ]|왜 |이유[가 ]|알고리즘|공부|배우|학습|문서 ?(읽|보|확인)|무슨 ?(의미|뜻)|뭐가 ?(달라|다르)|동작 ?방식|궁금/i },
+  { name: '글쓰기', re: /회고|블로그|포스트|글 ?(써|작성|쓰|정리)|readme|독후|문서 ?작성|초안|번역|가사|발표 ?자료|슬라이드|ppt|본문|마크다운 ?(작성|글)/i },
+  { name: '환경 설정', re: /설정|config|패키징|빌드 ?(설정|환경)|배포|deploy|\bci\b|github ?action|워크플로|package\.json|tsconfig|\.env|electron-builder|설치(?:해|하|할)|\binstall\b|환경 ?(설정|구성)|세팅|의존성|dependency|버전 ?(업|올려)|훅 ?(설정|추가|걸)|mcp ?(설정|추가|연결)/i },
+  { name: '기능 개발', re: /추가(?:해|하|좀)|만들[어자]|구현|기능 ?(추가|개발|만들)|새 ?(기능|화면|페이지|컴포넌트)|붙여|적용해|넣어 ?줘?|개발|화면 ?(만들|추가)|컴포넌트|feature|implement/i },
+];
 
 // 명령 문자열에서 의미 있는 첫 단어들을 뽑는다: "cd x && npm test" → [npm]
 const NOISE_VERBS = new Set(['cd', 'echo', 'true', 'sleep', 'export', 'set', 'source', 'time']);
@@ -93,6 +110,7 @@ export async function parseSession(
     rootUuid: null,
     category: '기타',
     firstPrompt: '',
+    intentHits: {},
     firstTs: null,
     lastTs: null,
     durationMin: 0,
@@ -101,6 +119,8 @@ export async function parseSession(
     questionMsgs: 0,
     directiveMsgs: 0,
     substantiveDirectives: 0,
+    fileRefDirectives: 0,
+    verifyDirectives: 0,
     learning: { chain2: 0, chain3: 0, grabQs: 0, whyQs: 0, confirmQs: 0 },
     assistantMsgs: 0,
     usage: { input: 0, output: 0, cacheRead: 0, cacheCreate5m: 0, cacheCreate1h: 0 },
@@ -208,12 +228,18 @@ function ingest(
     const isHuman = !!clean && !isMetaText(clean) && !clean.includes('[Request interrupted');
     if (isHuman) {
       s.humanMsgs++;
+      // 작업 의도 키워드 집계 (세션 전체 사람 메시지 누적 → categorize가 사용)
+      for (const it of INTENT_RES) {
+        if (it.re.test(clean)) s.intentHits[it.name] = (s.intentHits[it.name] ?? 0) + 1;
+      }
       const isQ = QUESTION_RE.test(clean);
       // 지시형 = 질문도, 단순 승인("응", "1번", "." 등)도 아닌 메시지. 80자 이상이면 맥락이 담긴 지시로 본다
       const isAck = (clean.length <= 2 && !isQ) || ACK_RE.test(clean);
       if (!isQ && !isAck) {
         s.directiveMsgs++;
         if (clean.length >= 80) s.substantiveDirectives++;
+        if (FILE_REF_RE.test(clean)) s.fileRefDirectives++;
+        if (VERIFY_RE.test(clean)) s.verifyDirectives++;
       }
       if (isQ) {
         s.questionMsgs++;

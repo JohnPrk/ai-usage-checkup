@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { scanJsonl } from './scanner';
 import { parseSession } from './parser';
-import { buildRecommendations, buildScores, categorize, placeLabel } from './heuristics';
+import { buildRecommendations, buildScoreCriteria, buildScores, categorize, placeLabel, projectKind } from './heuristics';
 import { buildInventory } from './inventory';
 import { findClaude } from './llm';
 import { claudeProjectDirs } from './paths';
@@ -134,6 +134,30 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     return { name, sessions: n, pct, projects };
   });
 
+  // 프로젝트 '결'별 비중: 세션이 열린 폴더로 우테코 미션 / 개인 프로젝트 / 기타 분류 (+ 종류 안의 개별 프로젝트)
+  const ptCount = new Map<string, number>();
+  const ptPlaces = new Map<string, Map<string, number>>();
+  for (const s of starters) {
+    const k = projectKind(s);
+    ptCount.set(k, (ptCount.get(k) ?? 0) + 1);
+    const places = ptPlaces.get(k) ?? new Map<string, number>();
+    const place = placeLabel(s);
+    places.set(place, (places.get(place) ?? 0) + 1);
+    ptPlaces.set(k, places);
+  }
+  const PT_ORDER = ['개인 프로젝트', '우테코 미션', '기타'];
+  const projectTypes = [...ptCount.entries()]
+    .map(([label, n]) => ({
+      label,
+      sessions: n,
+      pct: Math.round((n / Math.max(1, starters.length)) * 100),
+      projects: [...(ptPlaces.get(label) ?? new Map()).entries()]
+        .map(([name, c]) => ({ name, sessions: c as number }))
+        .sort((a, b) => b.sessions - a.sessions)
+        .slice(0, 5),
+    }))
+    .sort((a, b) => PT_ORDER.indexOf(a.label) - PT_ORDER.indexOf(b.label) || b.sessions - a.sessions);
+
   // 활동 분포 (서브에이전트 포함): 메시지 단위로 분류된 토큰 귀속을 합산
   const actAgg = new Map<string, { msgs: number; output: number; total: number; details: Record<string, number> }>();
   for (const s of all) {
@@ -184,6 +208,24 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     .map(([name, n]) => ({ name, n }))
     .sort((a, b) => b.n - a.n)
     .slice(0, 12);
+  // 도구를 성격별로 묶은 비중 (전체 호출 기준). 정규식은 renderer의 TOOL_GROUPS와 동기화 유지
+  const TOOL_GROUP_RES: { label: string; re: RegExp }[] = [
+    { label: '읽기·탐색', re: /^(Read|Grep|Glob|LS|NotebookRead|WebFetch|WebSearch)$/ },
+    { label: '파일 수정', re: /^(Edit|Write|NotebookEdit)$/ },
+    { label: '터미널', re: /^Bash$/ },
+    { label: '작업·대화', re: /^(Task\w*|TodoWrite|AskUserQuestion|Skill|Agent|ToolSearch|ExitPlanMode|EnterPlanMode)$/ },
+    { label: 'MCP 연동', re: /^mcp__/ },
+  ];
+  const groupTotals = new Map<string, number>();
+  let toolCallTotal = 0;
+  for (const [name, n] of toolAgg) {
+    toolCallTotal += n;
+    const label = TOOL_GROUP_RES.find((x) => x.re.test(name))?.label ?? '기타';
+    groupTotals.set(label, (groupTotals.get(label) ?? 0) + n);
+  }
+  const toolGroups = [...groupTotals.entries()]
+    .map(([label, n]) => ({ label, n, pct: toolCallTotal > 0 ? Math.round((n / toolCallTotal) * 100) : 0 }))
+    .sort((a, b) => b.n - a.n);
 
   // 행동 지표. 중단·질문은 꼬리 파일의 고유 라인도 대화의 일부라 main으로, 세션 단위 플래그는 starters로 센다
   const interruptions = main.reduce((a, s) => a + s.interruptions, 0);
@@ -231,6 +273,30 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     .sort((a, b) => b.n - a.n)
     .slice(0, 5);
 
+  // 공신력 신호 보강 (Anthropic Claude Code Best Practices 기반). 기존 신호는 그대로 두고 추가만 한다
+  // 구체성: 지시가 구체 파일·경로·@ 를 지목하는가 / 검증 실행을 함께 요청하는가
+  const fileRefDirectives = main.reduce((a, s) => a + s.fileRefDirectives, 0);
+  const verifyDirectives = main.reduce((a, s) => a + s.verifyDirectives, 0);
+  const fileRefDirectiveShare = directiveMsgs > 0 ? fileRefDirectives / directiveMsgs : 0;
+  const verifyDirectiveShare = directiveMsgs > 0 ? verifyDirectives / directiveMsgs : 0;
+  // 컨텍스트 위생: /clear·/compact 커맨드 사용 / 한 세션 정정 폭주(3회+)
+  const isClearCompact = (c: string) => /^\/?(clear|compact)$/i.test(c.trim());
+  const clearCompactCommands = main.reduce((a, s) => a + s.slashCommands.filter(isClearCompact).length, 0);
+  const correctionStormSessions = starters.filter((s) => s.interruptions > 2).length;
+  // 도구 생태계: MCP 호출 / 외부 서비스 CLI / /init
+  const mcpToolCalls = [...toolAgg.entries()].reduce((a, [name, n]) => a + (/^mcp__/.test(name) ? n : 0), 0);
+  const CLI_TOOLS = new Set([
+    'gh', 'aws', 'gcloud', 'sentry-cli', 'az', 'heroku', 'vercel', 'netlify',
+    'supabase', 'stripe', 'doctl', 'kubectl', 'terraform', 'flyctl', 'wrangler',
+  ]);
+  const cmdDetails = actAgg.get('명령 실행')?.details ?? {};
+  const cliToolUses = Object.entries(cmdDetails).reduce((a, [verb, n]) => a + (CLI_TOOLS.has(verb) ? n : 0), 0);
+  const initCommands = main.reduce((a, s) => a + s.slashCommands.filter((c) => /^\/?init$/i.test(c.trim())).length, 0);
+  const loopCommands = main.reduce((a, s) => a + s.slashCommands.filter((c) => /^\/?loop$/i.test(c.trim())).length, 0);
+  // 비용: 저렴 모델(Haiku)로 싼 작업을 위임한 비중
+  const haikuTokens = Object.entries(modelAgg).reduce((a, [m, v]) => a + (/haiku/i.test(m) ? v.tokens : 0), 0);
+  const cheaperModelShare = totalTokens > 0 ? haikuTokens / totalTokens : 0;
+
   // 자주 쓰는 프로젝트 상위 3곳의 CLAUDE.md 유무
   const byProject = new Map<string, SessionSummary[]>();
   for (const s of starters) {
@@ -263,8 +329,17 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     humanMsgs,
     directiveMsgs,
     substantiveDirectiveShare,
+    fileRefDirectiveShare,
+    verifyDirectiveShare,
     escPer100,
     questionRatio,
+    clearCompactCommands,
+    correctionStormSessions,
+    mcpToolCalls,
+    cliToolUses,
+    initCommands,
+    loopCommands,
+    cheaperModelShare,
     learningSignals,
     topCommands,
     claudeMd,
@@ -289,7 +364,34 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
   const inventory = buildInventory(topProjects, skillUseCount);
 
   const reviewShare = actTotal > 0 ? (actAgg.get('코드 읽기·검수')?.total ?? 0) / actTotal : 0;
-  const hin = { mainCount: starters.length, cacheHitRate, recacheRate, behavior, inventory, reviewShare };
+  // 학습 '양' 신호: 이해 중심 활동(대화·설계 + 코드 읽기·검수) 토큰 비중 + '학습·이해' 의도 세션 비중.
+  // 질문의 '질'이 높아도 학습에 실제로 쓰는 비중이 낮으면 학습 점수를 누른다 (heuristics의 learnVolumeFactor)
+  const understandShare =
+    actTotal > 0
+      ? ((actAgg.get('대화·설계')?.total ?? 0) + (actAgg.get('코드 읽기·검수')?.total ?? 0)) / actTotal
+      : 0;
+  const studyShare = starters.length > 0 ? (catCount.get('학습·이해') ?? 0) / starters.length : 0;
+
+  // 공식 Claude Code 기능 커버리지: docs에서 추린 핵심 기능 중 기간 내 사용 여부를 로그·인벤토리로 탐지
+  const toolUsed = (re: RegExp): boolean => [...toolAgg.keys()].some((k) => re.test(k));
+  const featureCoverage: Report['featureCoverage'] = [
+    { name: 'CLAUDE.md', used: inventory.globalClaudeMd.exists || inventory.projectClaudeMds.some((p) => p.has) },
+    { name: '슬래시 커맨드', used: behavior.topCommands.length > 0 },
+    { name: '서브에이전트', used: behavior.subagentRuns > 0 },
+    { name: '스킬', used: inventory.skills.some((s) => s.uses > 0) },
+    { name: '훅', used: inventory.hooks.length > 0 },
+    { name: 'MCP', used: behavior.mcpToolCalls > 0 },
+    { name: '플랜 모드', used: toolUsed(/^(ExitPlanMode|EnterPlanMode)$/) },
+    { name: '할 일 추적', used: toolUsed(/^TodoWrite$/) },
+    { name: '웹 검색·페치', used: toolUsed(/^(WebSearch|WebFetch)$/) },
+    { name: '/init', used: behavior.initCommands > 0 },
+    { name: '컨텍스트 관리', used: behavior.clearCompactCommands > 0 },
+    { name: '외부 CLI', used: behavior.cliToolUses > 0 },
+    { name: '반복 실행', used: behavior.loopCommands > 0 },
+    { name: '커스텀 커맨드', used: (inventory.customCommands ?? 0) > 0 },
+  ];
+
+  const hin = { mainCount: starters.length, cacheHitRate, recacheRate, behavior, inventory, reviewShare, understandShare, studyShare, featureCoverage: featureCoverage ?? [] };
   const scores = buildScores(hin);
   const recommendations = buildRecommendations(hin);
 
@@ -322,12 +424,16 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     estSavedUSD,
     modelMix,
     categories,
+    projectTypes,
     activities,
     daily,
     toolTop,
+    toolGroups,
     inventory,
+    featureCoverage,
     behavior,
     scores,
+    scoreCriteria: buildScoreCriteria(),
     recommendations,
     samples,
     env: { claudeBinary: findClaude(), projectsDirs: claudeProjectDirs() },

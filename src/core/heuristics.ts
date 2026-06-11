@@ -1,6 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
-import { Behavior, Inventory, Rec, SessionSummary } from './types';
+import { AxisCriterion, Behavior, Inventory, Rec, SessionSummary } from './types';
 
 // 세션을 연 위치가 진짜 프로젝트 폴더인지, 홈·바탕화면처럼 폴더 없이 연 것인지 구분한다
 type DirKind = 'project' | 'loose' | 'temp';
@@ -42,17 +42,64 @@ export function placeLabel(s: SessionSummary): string {
   return pd.split('-').filter(Boolean).slice(-2).join('-') || '알 수 없음';
 }
 
+// 세션이 열린 폴더로 작업의 '결'을 가른다: 우테코 미션 / 개인 프로젝트 / 기타(특정 프로젝트가 아닌 느슨한 세션).
+// placeLabel과 달리 cwd 전체 경로를 봐서 woowa_course 하위 미션까지 잡는다.
+export function projectKind(s: SessionSummary): string {
+  const cwd = s.cwd;
+  if (cwd) {
+    const home = os.homedir();
+    if (cwd === home || cwd === path.join(home, 'Desktop')) return '기타';
+    if (/\/woowa_course\//.test(cwd) || /roomescape|racingcar/i.test(path.basename(cwd))) return '우테코 미션';
+    return '개인 프로젝트';
+  }
+  const pd = s.projectDir;
+  if (/woowa_course|roomescape|racingcar/i.test(pd)) return '우테코 미션';
+  if (/-Desktop$/i.test(pd) || /^-Users-[^-]+$/.test(pd)) return '기타';
+  return '개인 프로젝트';
+}
+
+// 작업 의도 카테고리. 세션 전체 대화 내용(intentHits)에 학습·활동 신호를 더해 판정한다.
+// 디렉토리·첫 문장은 분류에 안 쓴다 (드릴다운에서 위치만 설명용으로 보여줄 뿐).
+const INTENT_LABELS = ['기능 개발', '버그 수정', '학습·이해', '리팩토링', '글쓰기', '환경 설정'];
+
 export function categorize(s: SessionSummary): string {
-  const dir = (s.projectDir + ' ' + (s.cwd ?? '')).toLowerCase();
-  if (/(woowa|roomescape|mission)/.test(dir)) return '미션 개발';
-  if (/(algorithm|algo-|study)/.test(dir)) return '학습';
-  if (/(blog|github-io|retro|회고|리소스)/.test(dir)) return '글·회고';
-  const p = s.firstPrompt;
-  if (/(알고리즘|백준|문제 풀|공부)/.test(p)) return '학습';
-  if (/(회고|블로그|글 써|README|독후)/.test(p)) return '글·회고';
-  if (/(ppt|pptx|피피티|슬라이드|발표자료|가사|엑셀|xlsx|스프레드시트|pdf|docx|워드)/i.test(p)) return '문서 작업';
-  // 위 어디에도 안 걸리면: 실제 프로젝트 폴더에서 연 세션은 사이드 프로젝트로 본다
-  return dirKind(s) === 'project' ? '토이·앱 개발' : '기타';
+  const k: Record<string, number> = {};
+  for (const label of INTENT_LABELS) k[label] = s.intentHits[label] ?? 0;
+  const amsg = (n: string): number => s.activities[n]?.msgs ?? 0;
+  const editMsgs = amsg('서버·스크립트 코드') + amsg('프론트 코드') + amsg('문서·설정 파일');
+  const readMsgs = amsg('코드 읽기·검수');
+  const qRatio = s.humanMsgs > 0 ? s.questionMsgs / s.humanMsgs : 0;
+
+  // '하는' 의도: 키워드 + (기능은 편집 활동으로 보강). 버그·리팩토링·글쓰기 키워드는 변별력이 커서 가중.
+  const doing: Record<string, number> = {
+    '기능 개발': k['기능 개발'] + Math.min(4, editMsgs * 0.4),
+    '버그 수정': k['버그 수정'] * 1.6,
+    '리팩토링': k['리팩토링'] * 1.5,
+    '환경 설정': k['환경 설정'] + Math.min(2, amsg('문서·설정 파일') * 0.3),
+    '글쓰기': k['글쓰기'] * 1.5,
+  };
+  let bestDoing = '기능 개발';
+  let bestDoingVal = -1;
+  for (const label of Object.keys(doing)) {
+    if (doing[label] > bestDoingVal) {
+      bestDoingVal = doing[label];
+      bestDoing = label;
+    }
+  }
+  // '학습·이해'는 이해 중심 세션에만: 학습 키워드 + 읽기 위주 활동 + 아주 높은 질문 비중만 약하게.
+  // (질문 많은 사람도 편집하며 묻는 건 '하는' 세션이다 — 학습이 doing을 확실히 압도할 때만 학습으로)
+  const learn = k['학습·이해'] + Math.min(3, readMsgs * 0.4) + (qRatio >= 0.6 ? 1.5 : 0);
+
+  if (editMsgs >= 2) {
+    // 코드를 고친 세션은 기본적으로 '하는' 세션
+    if (learn >= bestDoingVal * 1.6 && learn >= 4) return '학습·이해';
+    if (bestDoingVal >= 0.6) return bestDoing;
+    return '기능 개발';
+  }
+  // 편집이 거의 없는 세션: 이해·대화 위주
+  if (learn >= 1.5) return '학습·이해';
+  if (bestDoingVal >= 1) return bestDoing;
+  return '기타';
 }
 
 export interface HeuristicInput {
@@ -62,6 +109,9 @@ export interface HeuristicInput {
   behavior: Behavior;
   inventory: Inventory;
   reviewShare: number; // 전체 토큰 중 '코드 읽기·검수' 활동 비중
+  understandShare: number; // 이해 중심 활동(대화·설계 + 코드 읽기·검수) 토큰 비중 — 학습 '양'의 축
+  studyShare: number; // '학습·이해' 의도 세션 비중
+  featureCoverage: { name: string; used: boolean }[]; // 공식 기능 목록 중 기간 내 사용 여부 — 기능 활용도 커버리지
 }
 
 const clamp = (v: number): number => Math.max(5, Math.min(98, Math.round(v)));
@@ -79,49 +129,63 @@ export function buildScores(
   const contextScore = clamp(
     80 -
       60 * (b.longNoCompactSessions / n) +
-      15 * Math.min(1, (b.compactSessions / n) * 5) -
+      15 * Math.min(1, (b.compactSessions / n) * 5) +
+      // 보강: /clear·/compact로 작업을 끊는 습관(가점), 한 세션 정정 폭주(감점, 컨텍스트 오염)
+      Math.min(8, b.clearCompactCommands) -
+      Math.min(10, b.correctionStormSessions * 2) -
       (b.avgSessionMin > 120 ? 10 : 0)
   );
   // 프롬프트 구체성 = 의도를 한 번에 전달하는 습관. 첫 메시지 길이(셋업)뿐 아니라
   // 세션 중간 지시에 맥락이 담기는 비중(80자+ 지시)을 함께 본다. 포화점: 첫 메시지 180자, 본문 지시 28%.
   // Esc 중단은 출발이 어긋났다는 결과 신호라 감점. (정정 루프는 측정 결과 시도 크기에 비례해 신호로 안 씀 — 2026-06-11)
+  // 보강(Best Practices): 길이뿐 아니라 지시가 구체 파일·경로(@)를 지목하고 검증 실행을 요청하는지를 직접 본다.
+  // 재보정 2026-06-11: 기본점을 낮춰 곡선을 아래로(적당히 잘 쓰면 70~80, 90+는 거의 만점급). 캐시 축은 예외
   const promptScore = clamp(
-    20 +
-      Math.min(30, b.medianFirstPromptLen / 6) +
-      Math.min(35, b.substantiveDirectiveShare * 125) -
-      Math.min(15, b.escPer100 * 1.8)
+    9 +
+      Math.min(30, b.medianFirstPromptLen / 6.5) +
+      Math.min(35, b.substantiveDirectiveShare * 116) +
+      Math.min(12, b.fileRefDirectiveShare * 38) +
+      Math.min(8, b.verifyDirectiveShare * 38) -
+      Math.min(16, b.escPer100 * 1.9)
   );
-  // 기능 활용도 = 만들어 둔 자산(CLAUDE.md·스킬·훅)과 위임 수단(서브에이전트·커맨드)을 실제로 쓰는가.
-  // compact는 컨텍스트 운용 축에서만 본다 (이전엔 양쪽에 들어가 이중 계산이었음)
+  // 기능 활용도 = 공식 Claude Code 기능을 얼마나 두루 쓰는가(커버리지) + 자주 쓰는 자산의 깊이.
+  // 커버리지는 analyze에서 탐지한 공식 기능 목록(현재 12개) 중 기간 내 사용 비율 (2026-06-11 재정의: 단순 보유 합산 → 커버리지 중심)
   const usedSkills = h.inventory.skills.filter((s) => s.uses > 0).length;
+  const featTotal = Math.max(1, h.featureCoverage.length);
+  const featUsed = h.featureCoverage.filter((f) => f.used).length;
+  const coverage = featUsed / featTotal;
   const featureScore = clamp(
-    10 +
-      claudeMdHave * 25 +
-      Math.min(15, b.topCommands.length * 5) +
-      (b.subagentRuns > 0 ? 15 : 0) +
-      (h.inventory.skills.length > 0 ? 8 : 0) +
-      (usedSkills > 0 ? 12 : 0) +
-      (h.inventory.hooks.length > 0 ? 15 : 0)
+    2 +
+      coverage * 56 +
+      claudeMdHave * 8 +
+      Math.min(7, usedSkills * 1.5) +
+      Math.min(5, b.topCommands.length * 1.5)
   );
-  const costScore = clamp(h.cacheHitRate * 100 - Math.max(0, h.recacheRate - 0.35) * 60);
+  // 비용 보강(agent-design): 탐색·간단 작업을 저렴 모델(Haiku)에 위임하면 소폭 가점
+  const costScore = clamp(
+    h.cacheHitRate * 100 - Math.max(0, h.recacheRate - 0.35) * 60 + Math.min(6, b.cheaperModelShare * 40)
+  );
   // 학습 주도성 = 받은 답을 그대로 두지 않는 습관.
   // 파고들기(꼬리 체인 + 깊은 체인 + 이어받기) > 왜·원리 > 이해 확인 순 가중, 단순 질문율은 보조 신호.
   // 상한은 신호별 포화점: 한 신호가 비정상적으로 커도(긴 문서 붙여넣기 등) 점수를 독식하지 못하게 한다
   const lg = b.learningSignals;
-  const learningScore = clamp(
-    25 +
-      Math.min(35, (lg.chainPer100 + lg.chain3Per100 + lg.grabPer100) * 3) +
-      Math.min(20, lg.whyPer100 * 1.75) +
-      Math.min(8, lg.confirmPer100 * 5) +
-      Math.min(10, b.questionRatio * 20)
-  );
+  // 질문의 '질'(rate 기반 가점)에, '학습에 쓰는 비중'(양)을 곱한다.
+  // 비중 = 이해 중심 활동 + 전용 학습 분야 블렌드. 질은 높아도 학습 비중이 낮으면 점수가 눌린다 (2026-06-11)
+  const learnUsageShare = 0.65 * h.understandShare + 0.35 * h.studyShare;
+  const learnVolumeFactor = 0.5 + 0.5 * Math.min(1, learnUsageShare / 0.3);
+  const learnQuality =
+    Math.min(35, (lg.chainPer100 + lg.chain3Per100 + lg.grabPer100) * 3) +
+    Math.min(20, lg.whyPer100 * 1.75) +
+    Math.min(8, lg.confirmPer100 * 5) +
+    Math.min(10, b.questionRatio * 20);
+  const learningScore = clamp(11 + learnQuality * learnVolumeFactor);
 
   return [
     {
       axis: '프롬프트 구체성',
       score: promptScore,
       desc: '요청에 맥락·제약을 담아 의도를 한 번에 전달하는가',
-      detail: `첫 메시지 중앙값 ${b.medianFirstPromptLen}자 · 80자 이상 지시 ${pctOf(b.substantiveDirectiveShare)}% · 중단 ${b.escPer100.toFixed(1)}회/100메시지`,
+      detail: `첫 메시지 중앙값 ${b.medianFirstPromptLen}자 · 80자 이상 지시 ${pctOf(b.substantiveDirectiveShare)}% · 파일 지목 ${pctOf(b.fileRefDirectiveShare)}% · 검증 요청 ${pctOf(b.verifyDirectiveShare)}% · 중단 ${b.escPer100.toFixed(1)}회/100메시지`,
     },
     {
       axis: '학습 주도성',
@@ -133,19 +197,142 @@ export function buildScores(
       axis: '컨텍스트 운용',
       score: contextScore,
       desc: '대화가 커지기 전에 compact·clear로 끊어 토큰 낭비를 막는가',
-      detail: `2시간+ 무압축 세션 ${b.longNoCompactSessions}개 · compact 쓴 세션 ${b.compactSessions}개 · 평균 ${Math.round(b.avgSessionMin)}분`,
+      detail: `2시간+ 무압축 세션 ${b.longNoCompactSessions}개 · compact 쓴 세션 ${b.compactSessions}개 · /clear·/compact ${b.clearCompactCommands}회 · 정정폭주 세션 ${b.correctionStormSessions}개 · 평균 ${Math.round(b.avgSessionMin)}분`,
     },
     {
       axis: '비용·캐시 효율',
       score: costScore,
       desc: '같은 컨텍스트를 다시 계산하지 않고 캐시에서 읽는 비율',
-      detail: `캐시 적중 ${pctOf(h.cacheHitRate)}% · 캐시 재작성 ${pctOf(h.recacheRate)}%`,
+      detail: `캐시 적중 ${pctOf(h.cacheHitRate)}% · 캐시 재작성 ${pctOf(h.recacheRate)}% · 저렴 모델 ${pctOf(b.cheaperModelShare)}%`,
     },
     {
       axis: '기능 활용도',
       score: featureScore,
-      desc: 'CLAUDE.md·스킬·훅·서브에이전트 같은 도구를 실제로 쓰는가',
-      detail: `CLAUDE.md ${b.claudeMd.filter((c) => c.has).length}/${b.claudeMd.length} · 커맨드 ${b.topCommands.length}종 · 스킬 ${usedSkills}/${h.inventory.skills.length} 사용 · 훅 ${h.inventory.hooks.length}개 · 서브에이전트 ${b.subagentRuns}회`,
+      desc: '공식 기능(스킬·훅·서브에이전트·MCP·플랜 모드 등)을 두루 쓰는가',
+      detail: `공식 기능 ${featUsed}/${featTotal} 사용 · CLAUDE.md ${b.claudeMd.filter((c) => c.has).length}/${b.claudeMd.length} · 커맨드 ${b.topCommands.length}종 · 스킬 ${usedSkills}/${h.inventory.skills.length} 호출 · 훅 ${h.inventory.hooks.length}개 · 서브에이전트 ${b.subagentRuns}회`,
+    },
+  ];
+}
+
+// 점수 기준 팝업 내용. buildScores의 공식을 바꾸면 여기 문장도 같이 바꾼다 (숫자가 코드와 1:1)
+export function buildScoreCriteria(): AxisCriterion[] {
+  return [
+    {
+      axis: '프롬프트 구체성',
+      what: '요청에 맥락·제약을 담아 의도를 한 번에 전달하는가',
+      base: '기본 9점',
+      gains: [
+        '첫 메시지 길이(세션 중앙값): 6.5자당 1점, 195자에서 +30 만점',
+        '80자 이상 지시 비중: 30%에서 +35 만점 (질문이나 "응·1번·고고" 같은 승인 답변은 지시로 안 침)',
+        '구체 파일·경로(@) 지목 비중: 32%에서 +12 만점',
+        '테스트·빌드 등 검증 실행을 함께 요청한 비중: 21%에서 +8 만점',
+      ],
+      penalties: ['Esc로 끊고 다시 지시: 100메시지당 1회마다 1.9점, 최대 16점'],
+      sources: [
+        {
+          label: 'Claude Code Best Practices',
+          url: 'https://code.claude.com/docs/en/best-practices',
+          grounds: '구체성과 정정(중단) 감소를 직접 연결 ("지시가 정확할수록 정정이 줄어든다")',
+        },
+        {
+          label: 'Anthropic 프롬프트 엔지니어링 (Be clear and direct)',
+          url: 'https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/be-clear-and-direct',
+          grounds: '맥락 없는 동료가 읽어도 안 헷갈릴 만큼 구체적으로 + 의도·제약을 함께 담기',
+        },
+      ],
+      calibrationNote:
+        '길이·맥락량은 구체성의 대리지표이고, 첫 메시지 180자·지시 28% 같은 컷은 우리 데이터로 앵커링한 값(공식 문서엔 수치 기준 없음).',
+    },
+    {
+      axis: '학습 주도성',
+      what: '받은 답을 그대로 두지 않고 꼬리질문으로 파고드는가',
+      base: '기본 11점. 아래 가점 합계에 "학습 비중"(0.5~1.0배)을 곱한다',
+      gains: [
+        '파고들기(2·3연속 질문 체인 + "근데/그럼" 이어받기): 100메시지당 12회쯤에서 +35 만점',
+        '왜·원리·차이를 묻는 질문: 100메시지당 11회쯤에서 +20 만점',
+        '이해 확인형("그러니까 ~라는 거지?"): 100메시지당 1.6회에서 +8 만점',
+        '질문 비율(보조 신호): 50%에서 +10 만점',
+      ],
+      penalties: [
+        '질문의 질이 높아도 학습에 쓰는 비중이 낮으면 가점이 눌림: 비중 0%면 가점 ×0.5, 30%↑면 ×1.0 (비중 = 이해 활동 토큰 65% + 전용 학습 분야 세션 35% 블렌드)',
+      ],
+      sources: [
+        {
+          label: 'Dunlosky et al. 2013, Improving Students’ Learning (PSPI)',
+          url: 'https://www.whz.de/fileadmin/lehre/hochschuldidaktik/docs/dunloskiimprovingstudentlearning.pdf',
+          grounds:
+            '왜·원리 질문(elaborative interrogation)과 이해 확인(self-explanation)이 학습을 강화, 고효용 전략으로 평가',
+        },
+      ],
+      calibrationNote:
+        '이 축은 우리가 정의한 합성 지표다. 구성요소(왜 질문·이해 확인)는 학습과학으로 검증됐지만 Anthropic 공식 지표는 아니며, 100메시지당 횟수 컷은 우리 데이터 앵커.',
+    },
+    {
+      axis: '컨텍스트 운용',
+      what: '대화가 커지기 전에 compact·clear로 끊어 토큰 낭비를 막는가',
+      base: '기본 80점 (감점 중심 축)',
+      gains: [
+        'compact를 쓴 세션이 전체의 20% 이상이면 +15 만점',
+        '/clear·/compact로 작업을 끊은 횟수: 8회에서 +8 만점',
+      ],
+      penalties: [
+        '2시간 넘게 compact 없이 이어간 세션 비중 × 60점',
+        '한 세션에서 3회 이상 중단·정정(컨텍스트 오염): 세션당 2점, 최대 10점',
+        '평균 세션이 120분을 넘으면 10점',
+      ],
+      sources: [
+        {
+          label: 'Claude Code Best Practices',
+          url: 'https://code.claude.com/docs/en/best-practices',
+          grounds:
+            '/clear·/compact 권장의 근거: "컨텍스트가 차면 성능이 저하된다", "깔끔한 세션이 정정 누적된 긴 세션을 거의 항상 이긴다"',
+        },
+        {
+          label: 'Effective context engineering for AI agents',
+          url: 'https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents',
+          grounds: '토큰이 늘수록 정확도·회상이 떨어지는 "context rot" 개념',
+        },
+      ],
+      calibrationNote:
+        '120분 컷과 감점 가중은 우리 데이터 앵커. 자동 compaction이 동작한 세션은 수동 /compact가 없어도 낭비가 아닐 수 있어 디폴트 휴리스틱으로 본다.',
+    },
+    {
+      axis: '비용·캐시 효율',
+      what: '같은 컨텍스트를 다시 계산하지 않고 캐시에서 읽는 비율',
+      base: '캐시 적중률이 곧 점수 (적중 96% → 96점)',
+      gains: ['저렴 모델(Haiku)로 싼 작업을 위임한 토큰 비중: 15%에서 +6 만점'],
+      penalties: ['캐시 재작성 비율이 35%를 넘는 만큼 × 60점 (예: 50%면 9점 감점)'],
+      sources: [
+        {
+          label: 'Anthropic Prompt Caching 공식 문서',
+          url: 'https://platform.claude.com/docs/en/build-with-claude/prompt-caching',
+          grounds: '캐시 읽기=입력가 0.1×, 쓰기=1.25×(5분)/2×(1시간), 기본 TTL 5분. 읽기 비율이 높을수록 절약',
+        },
+      ],
+      calibrationNote:
+        '캐시 적중률을 점수에 직결한 건 읽기가 약 10배 싸다는 공식 단가에 근거. 재작성 35% 컷과 ×60 가중은 우리 데이터 앵커.',
+    },
+    {
+      axis: '기능 활용도',
+      what: '공식 Claude Code 기능을 얼마나 두루 쓰는가(커버리지) + 자주 쓰는 자산의 깊이',
+      base: '기본 2점',
+      gains: [
+        '공식 기능 커버리지 × 56점: 12개(CLAUDE.md·슬래시 커맨드·서브에이전트·스킬·훅·MCP·플랜 모드·할 일 추적·웹 검색·/init·컨텍스트 관리(/compact·/clear)·외부 CLI) 중 기간 내 쓴 비율',
+        '주요 프로젝트 CLAUDE.md 보유 비율 × 8점 (깊이)',
+        '스킬 실제 호출 깊이: 호출한 스킬 수 × 1.5, 최대 7점',
+        '슬래시 커맨드 다양성: 종류 × 1.5, 최대 5점',
+      ],
+      penalties: [],
+      sources: [
+        {
+          label: 'Claude Code Best Practices: Configure your environment',
+          url: 'https://code.claude.com/docs/en/best-practices',
+          grounds:
+            'CLAUDE.md·훅·서브에이전트·스킬을 권장 셋업으로 명시 ("CLAUDE.md는 매 대화 시작 시 읽는 영구 컨텍스트", "훅은 결정적으로 보장")',
+        },
+      ],
+      calibrationNote:
+        '12개 기능 목록은 공식 docs(overview·memory·skills·hooks·mcp·sub-agents 등)에서 추린, 로그로 탐지 가능한 핵심 기능. 커버리지 ×56·깊이 가중은 우리 데이터 앵커. 단순 보유가 아니라 기간 내 실제 사용을 본다.',
     },
   ];
 }
