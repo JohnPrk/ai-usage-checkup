@@ -8,10 +8,19 @@ const MAX_LINE_LENGTH = 1_000_000;
 
 const num = (v: unknown): number => (typeof v === 'number' && isFinite(v) ? v : 0);
 
+// 사용자 기준(로컬 시간대)의 날짜 키. UTC로 자르면 저녁 세션이 다음 날로 밀린다
+function localDay(ms: number): string {
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 // 한 메시지(id 기준)의 도구·파일 확장자를 라인들에 걸쳐 모은다
 interface MsgMeta {
   tools: string[];
   exts: string[];
+  verbs: string[]; // Bash 명령의 첫 단어들 (git, npm, …)
   output: number;
   total: number;
 }
@@ -22,6 +31,30 @@ const CODE_EXTS = new Set([
   'swift', 'c', 'cc', 'cpp', 'h', 'hpp', 'sh', 'zsh', 'bash',
 ]);
 const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'NotebookRead']);
+
+// 학습 주도성의 분자: 질문형 메시지 판정
+const QUESTION_RE = /[?？]|왜 |어떻게|뭐가|무엇|설명해|이유/;
+// 단순 승인·진행 신호: 클로드의 질문/제안에 답하는 흐름 제어라 지시형 구체성 평가에서 제외
+const ACK_RE =
+  /^(응+|ㅇ+|네+|넵+|예+|좋아요?|좋다|고고|ㄱㄱ|ok|오케이|오키|ㅇㅋ|그래|당연|맞아|진행해|진행해줘|해줘|그렇게 해|그렇게해|계속|이어서 (진행)?해?줘?|마저 (진행)?해?줘?|커밋해|푸시해|고마워|감사|[0-9]{1,2}번?|[a-d]안?)[.!~ㅋㅎ\s]*$/i;
+// 학습 주도성 세부 신호 (질문형 메시지 안에서 판정)
+const WHY_RE = /왜 |왜\?|이유|원리|어째서|왜냐|내부적으로|차이가? 뭐|뭐가 달라/;
+const CONFIRM_RE = /맞아\?|맞지\?|라는 ?거(야|지|네)?\?|란 ?거(야|지)?\?|거구나|인 ?건가\?/;
+const GRAB_RE = /^(근데|그럼 |그러면|그렇다면|아 |오 |잠깐|아니 그)/;
+
+// 명령 문자열에서 의미 있는 첫 단어들을 뽑는다: "cd x && npm test" → [npm]
+const NOISE_VERBS = new Set(['cd', 'echo', 'true', 'sleep', 'export', 'set', 'source', 'time']);
+function commandVerbs(cmd: string): string[] {
+  const out: string[] = [];
+  for (const part of cmd.split(/\s*(?:&&|\|\||;|\|)\s*/)) {
+    const w = part.trim().split(/\s+/)[0] ?? '';
+    const v = w.split('/').pop()?.toLowerCase() ?? '';
+    if (!v || !/^[a-z][a-z0-9_.-]*$/.test(v) || NOISE_VERBS.has(v)) continue;
+    out.push(v);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
 
 function classifyActivity(tools: string[], exts: string[]): string {
   if (tools.length === 0) return '대화·설계';
@@ -46,17 +79,29 @@ function classifyActivity(tools: string[], exts: string[]): string {
   return '기타 도구';
 }
 
-export async function parseSession(f: ScannedFile): Promise<{ session: SessionSummary; skippedLines: number }> {
+// seenUuids: 파일 간 공유 세트. 포크·워크트리 사본의 복제 라인을 한 번만 집계하기 위해 호출자가 넘긴다
+export async function parseSession(
+  f: ScannedFile,
+  seenUuids: Set<string> = new Set()
+): Promise<{ session: SessionSummary; skippedLines: number }> {
   const s: SessionSummary = {
     file: f.file,
     projectDir: f.projectDir,
     isSubagentFile: f.isSubagentFile,
-    category: '기타·토이',
+    isContinuation: false,
+    isForkChild: false,
+    rootUuid: null,
+    category: '기타',
     firstPrompt: '',
     firstTs: null,
     lastTs: null,
     durationMin: 0,
     userMsgs: 0,
+    humanMsgs: 0,
+    questionMsgs: 0,
+    directiveMsgs: 0,
+    substantiveDirectives: 0,
+    learning: { chain2: 0, chain3: 0, grabQs: 0, whyQs: 0, confirmQs: 0 },
     assistantMsgs: 0,
     usage: { input: 0, output: 0, cacheRead: 0, cacheCreate5m: 0, cacheCreate1h: 0 },
     perModel: {},
@@ -69,10 +114,13 @@ export async function parseSession(f: ScannedFile): Promise<{ session: SessionSu
     toolCounts: {},
     skillUses: {},
     activities: {},
+    daily: {},
   };
   // 같은 message.id가 여러 라인(콘텐츠 블록별)에 같은 usage를 반복 기록하므로 중복 합산을 막는다
   const seenMessageIds = new Set<string>();
   const msgMeta = new Map<string, MsgMeta>();
+  // 연속 질문 체인 추적 (직전 사람 메시지가 질문이었는지)
+  const qState = { prevQ: false, run: 0 };
   let skippedLines = 0;
 
   const stream = fs.createReadStream(f.file, { encoding: 'utf8' });
@@ -92,7 +140,17 @@ export async function parseSession(f: ScannedFile): Promise<{ session: SessionSu
         skippedLines++;
         continue;
       }
-      ingest(obj, s, seenMessageIds, msgMeta);
+      const uid = typeof obj.uuid === 'string' ? obj.uuid : null;
+      if (uid) {
+        if (!s.rootUuid) s.rootUuid = uid;
+        if (seenUuids.has(uid)) {
+          // 다른 파일이 이미 집계한 복제 라인. 고유 내용이 나오기 전부터 복제라면 이 파일은 포크 사본이다
+          if (s.userMsgs + s.assistantMsgs === 0) s.isForkChild = true;
+          continue;
+        }
+        seenUuids.add(uid);
+      }
+      ingest(obj, s, seenMessageIds, msgMeta, qState);
     }
   } finally {
     rl.close();
@@ -105,15 +163,24 @@ export async function parseSession(f: ScannedFile): Promise<{ session: SessionSu
   // 메시지별 도구 사용이 다 모인 뒤에야 활동을 확정할 수 있다
   for (const meta of msgMeta.values()) {
     const act = classifyActivity(meta.tools, meta.exts);
-    const a = s.activities[act] ?? (s.activities[act] = { msgs: 0, output: 0, total: 0 });
+    const a = s.activities[act] ?? (s.activities[act] = { msgs: 0, output: 0, total: 0, details: {} });
     a.msgs++;
     a.output += meta.output;
     a.total += meta.total;
+    // 활동의 실제 내용물: 명령 실행이면 명령어, 파일 작업이면 확장자
+    const items = act === '명령 실행' ? meta.verbs : meta.exts;
+    for (const it of items) a.details[it] = (a.details[it] ?? 0) + 1;
   }
   return { session: s, skippedLines };
 }
 
-function ingest(obj: any, s: SessionSummary, seenMessageIds: Set<string>, msgMeta: Map<string, MsgMeta>): void {
+function ingest(
+  obj: any,
+  s: SessionSummary,
+  seenMessageIds: Set<string>,
+  msgMeta: Map<string, MsgMeta>,
+  qState: { prevQ: boolean; run: number }
+): void {
   if (obj.isCompactSummary === true) s.compacts++;
   if (obj.isSidechain === true) s.hasSidechain = true;
   if (typeof obj.timestamp === 'string') {
@@ -134,10 +201,35 @@ function ingest(obj: any, s: SessionSummary, seenMessageIds: Set<string>, msgMet
     const re = /<command-name>([^<]+)<\/command-name>/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text))) s.slashCommands.push(m[1].trim());
-    if (!s.firstPrompt) {
-      const clean = text.trim();
-      if (clean && !isMetaText(clean)) s.firstPrompt = clean.slice(0, 300);
+    const clean = text.trim();
+    // 사람 메시지가 나오기 전에 이어하기 스텁이 보이면 이 파일은 기존 대화의 연속이다
+    if (!s.firstPrompt && clean.startsWith('This session is being continued')) s.isContinuation = true;
+    // 사람이 직접 친 메시지만 질문 비율에 넣는다. 첫 메시지만 보면 긴 세션 중간의 질문이 전부 누락된다
+    const isHuman = !!clean && !isMetaText(clean) && !clean.includes('[Request interrupted');
+    if (isHuman) {
+      s.humanMsgs++;
+      const isQ = QUESTION_RE.test(clean);
+      // 지시형 = 질문도, 단순 승인("응", "1번", "." 등)도 아닌 메시지. 80자 이상이면 맥락이 담긴 지시로 본다
+      const isAck = (clean.length <= 2 && !isQ) || ACK_RE.test(clean);
+      if (!isQ && !isAck) {
+        s.directiveMsgs++;
+        if (clean.length >= 80) s.substantiveDirectives++;
+      }
+      if (isQ) {
+        s.questionMsgs++;
+        if (WHY_RE.test(clean)) s.learning.whyQs++;
+        if (CONFIRM_RE.test(clean)) s.learning.confirmQs++;
+        if (GRAB_RE.test(clean)) s.learning.grabQs++;
+        // 체인: 직전 사람 메시지도 질문이면 이어지는 중. 2에 닿는 순간과 3에 닿는 순간만 센다(체인당 1회)
+        qState.run = qState.prevQ ? qState.run + 1 : 1;
+        if (qState.run === 2) s.learning.chain2++;
+        if (qState.run === 3) s.learning.chain3++;
+      } else {
+        qState.run = 0;
+      }
+      qState.prevQ = isQ;
     }
+    if (!s.firstPrompt && isHuman) s.firstPrompt = clean.slice(0, 300);
   } else if (obj.type === 'assistant') {
     const msg = obj.message;
     if (!msg) return;
@@ -148,7 +240,7 @@ function ingest(obj: any, s: SessionSummary, seenMessageIds: Set<string>, msgMet
     if (id) {
       meta = msgMeta.get(id) ?? null;
       if (!meta) {
-        meta = { tools: [], exts: [], output: 0, total: 0 };
+        meta = { tools: [], exts: [], verbs: [], output: 0, total: 0 };
         msgMeta.set(id, meta);
       }
     }
@@ -160,14 +252,22 @@ function ingest(obj: any, s: SessionSummary, seenMessageIds: Set<string>, msgMet
     s.assistantMsgs++;
     if (msg.usage) {
       addUsage(s, typeof msg.model === 'string' ? msg.model : 'unknown', msg.usage);
+      const u = msg.usage;
+      const lineTotal =
+        num(u.input_tokens) +
+        num(u.output_tokens) +
+        num(u.cache_read_input_tokens) +
+        num(u.cache_creation_input_tokens);
+      if (typeof obj.timestamp === 'string') {
+        const t = Date.parse(obj.timestamp);
+        if (!isNaN(t)) {
+          const day = localDay(t);
+          s.daily[day] = (s.daily[day] ?? 0) + lineTotal;
+        }
+      }
       if (meta) {
-        const u = msg.usage;
         meta.output += num(u.output_tokens);
-        meta.total +=
-          num(u.input_tokens) +
-          num(u.output_tokens) +
-          num(u.cache_read_input_tokens) +
-          num(u.cache_creation_input_tokens);
+        meta.total += lineTotal;
       }
     }
   }
@@ -189,6 +289,9 @@ function collectToolUse(content: unknown, s: SessionSummary, meta: MsgMeta | nul
             : '';
       const dot = fp.lastIndexOf('.');
       if (dot > 0 && meta) meta.exts.push(fp.slice(dot + 1).toLowerCase());
+    }
+    if (c.name === 'Bash' && typeof input.command === 'string' && meta) {
+      meta.verbs.push(...commandVerbs(input.command));
     }
     if (c.name === 'Skill' && typeof input.skill === 'string') {
       s.skillUses[input.skill] = (s.skillUses[input.skill] ?? 0) + 1;
@@ -218,7 +321,9 @@ function isMetaText(t: string): boolean {
     t.includes('<command-name>') ||
     t.startsWith('<system-reminder') ||
     t.startsWith('<task-notification') ||
-    t.startsWith('Caveat:')
+    t.startsWith('Caveat:') ||
+    // 컨텍스트 초과로 이어진 세션 첫머리의 자동 요약 스텁 — 사람이 친 메시지가 아니다
+    t.startsWith('This session is being continued')
   );
 }
 

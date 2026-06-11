@@ -14,7 +14,7 @@ function createWindow(): void {
     height: 860,
     minWidth: 880,
     minHeight: 640,
-    title: 'AI 사용 체크업',
+    title: 'AI 성적표',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
     },
@@ -28,7 +28,29 @@ function createWindow(): void {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  migrateSnapshots();
+  createWindow();
+});
+
+// 앱 이름이 'AI Usage Checkup' → 'AI 성적표'로 바뀌면서 userData 폴더도 바뀐다.
+// 옛 폴더에만 스냅샷이 있으면 새 폴더로 한 번 복사해 추이를 잇는다.
+function migrateSnapshots(): void {
+  try {
+    const newDir = snapshotsDir();
+    if (fs.existsSync(newDir) && fs.readdirSync(newDir).length > 0) return;
+    const oldDir = path.join(app.getPath('appData'), 'AI Usage Checkup', 'snapshots');
+    if (!fs.existsSync(oldDir)) return;
+    fs.mkdirSync(newDir, { recursive: true });
+    for (const f of fs.readdirSync(oldDir)) {
+      if (/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) {
+        fs.copyFileSync(path.join(oldDir, f), path.join(newDir, f));
+      }
+    }
+  } catch {
+    // 마이그레이션 실패는 치명적이지 않다 (스냅샷은 다시 쌓인다)
+  }
+}
 
 app.on('window-all-closed', () => {
   app.quit();

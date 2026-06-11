@@ -1,4 +1,4 @@
-# AI 사용 체크업
+# AI 성적표
 
 Claude Code를 얼마나 잘 쓰고 있는지 진단해주는 데스크탑 앱 (Mac / Windows).
 
@@ -47,3 +47,20 @@ src/
 
 분석 스냅샷은 앱 데이터 폴더(`userData/snapshots/`)에 날짜별로 저장된다.
 원본 jsonl은 기본 30일 후 삭제되므로, 스냅샷이 장기 추이의 근거가 된다.
+
+<br><br>
+
+## 패키징 (mac dmg)
+
+```bash
+npm run dist   # release/AI 성적표-0.4.0-arm64.dmg
+```
+
+미서명(ad-hoc) 빌드라서 받은 쪽에서 처음 열 때 우클릭 → 열기가 필요할 수 있다.
+
+**주의: `package.json`의 `productName`은 NFD(자모 분해형)로 저장되어 있다.**
+DMG(HFS+)가 파일명을 NFD로 강제하는데 plist·asar 문자열이 NFC로 남으면
+둘이 어긋나서 설치된 앱이 실행 즉시 죽는다(SIGTRAP, 에러 메시지 없음).
+그래서 파일명·plist·asar를 전부 NFD로 통일한다. 이름을 바꿀 때는 그냥
+새 이름을 적으면 되고, `npm run dist`가 빌드 전에 자동으로 NFD로
+정규화한다(`scripts/ensure-nfd.mjs`).

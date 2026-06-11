@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
-  <title>AI 사용 체크업</title>
+  <title>AI 성적표</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="sheet">
     <header class="doc-head">
       <div>
-        <h1>AI 사용 체크업</h1>
+        <h1>AI 성적표</h1>
         <p id="subtitle">불러오는 중…</p>
       </div>
       <div class="doc-actions">
@@ -36,44 +36,58 @@
       <section class="sec">
         <h2 class="sec-title">1. 종합 판정</h2>
         <p id="level"></p>
-        <div id="axes"></div>
+        <div class="judge-grid">
+          <div id="radar"></div>
+          <div id="axes"></div>
+        </div>
       </section>
 
       <section class="sec">
         <h2 class="sec-title">2. 핵심 지표</h2>
         <div class="stats" id="metrics"></div>
+        <div id="daily-block" class="gap-top hidden">
+          <h3 class="sub-title">일별 토큰 <span class="hint">캐시 읽기·쓰기까지 포함한 하루 사용량</span></h3>
+          <div id="daily-chart"></div>
+        </div>
+        <div id="model-block" class="gap-top hidden">
+          <h3 class="sub-title">모델 비중 <span class="hint">토큰 기준</span></h3>
+          <div id="model-mix"></div>
+        </div>
       </section>
 
       <section class="sec">
         <h2 class="sec-title">3. 사용 내역</h2>
         <div class="cols2">
           <div>
-            <h3 class="sub-title">분야별 세션 <span class="hint">폴더·첫 요청 기준</span></h3>
+            <h3 class="sub-title">분야별 세션 <span class="hint">세션을 연 폴더 + 첫 요청 문구로 분류</span></h3>
+            <div class="donut-wrap"><div id="cat-donut"></div></div>
             <div id="categories"></div>
           </div>
           <div id="activities-block">
-            <h3 class="sub-title">활동별 토큰 <span class="hint">도구·파일 확장자 기반 근사</span></h3>
+            <h3 class="sub-title">활동별 토큰 <span class="hint">각 응답이 쓴 도구·고친 파일로 추정</span></h3>
+            <div class="donut-wrap"><div id="act-donut"></div></div>
             <div id="activities"></div>
           </div>
         </div>
         <div id="tools-block">
-          <h3 class="sub-title gap-top">자주 쓴 도구 <span class="hint">호출 횟수</span></h3>
+          <h3 class="sub-title gap-top">자주 쓴 도구 <span class="hint">호출 횟수 · 색은 도구 성격</span></h3>
           <div id="tool-top"></div>
+          <div id="tool-legend" class="stack-legend"></div>
         </div>
       </section>
 
       <section class="sec" id="inventory-card">
         <h2 class="sec-title">4. 설정 자산 <span class="hint">훅은 실행 기록이 로그에 없어 구성만 표시</span></h2>
         <div class="cols3">
-          <div>
+          <div class="inv-col">
             <h3 class="sub-title">CLAUDE.md</h3>
             <div id="inv-claudemd"></div>
           </div>
-          <div>
+          <div class="inv-col">
             <h3 class="sub-title">스킬 · 30일 호출</h3>
             <div id="inv-skills"></div>
           </div>
-          <div>
+          <div class="inv-col">
             <h3 class="sub-title">훅</h3>
             <div id="inv-hooks"></div>
           </div>

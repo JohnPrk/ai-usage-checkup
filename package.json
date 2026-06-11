@@ -1,14 +1,16 @@
 {
   "name": "ai-usage-checkup",
-  "productName": "AI Usage Checkup",
-  "version": "0.3.0",
+  "productName": "AI 성적표",
+  "version": "0.4.0",
   "description": "Claude Code 사용 패턴 분석 + opus 코칭 데스크탑 앱",
   "main": "dist/main/main.js",
   "scripts": {
     "build": "tsc && cp src/renderer/index.html src/renderer/style.css dist/renderer/",
     "start": "npm run build && electron .",
     "cli": "node dist/core/cli.js",
-    "dist": "npm run build && electron-builder"
+    "predist": "node scripts/ensure-nfd.mjs",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --win --x64"
   },
   "build": {
     "appId": "com.tnew.ai-usage-checkup",
@@ -21,10 +23,12 @@
     },
     "mac": {
       "target": "dmg",
-      "identity": null
+      "identity": null,
+      "icon": "build/icon.icns"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     }
   },
   "devDependencies": {

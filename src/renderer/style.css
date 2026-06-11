@@ -76,6 +76,8 @@ select { color: var(--muted); max-width: 170px; }
 #level { font-size: 19px; font-weight: 700; margin-bottom: 12px; }
 #level .lv-desc { font-size: 13px; font-weight: 400; color: var(--muted); }
 
+.axis-item { padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.axis-item:last-child { border-bottom: none; }
 .axis-row {
   display: grid;
   grid-template-columns: 118px 1fr 112px;
@@ -83,9 +85,15 @@ select { color: var(--muted); max-width: 170px; }
   align-items: center;
   font-size: 12.5px;
   padding: 4px 0;
-  border-bottom: 1px solid var(--line-soft);
 }
-.axis-row:last-child { border-bottom: none; }
+.axis-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.axis-detail {
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.75;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
 .track { height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
 .fill { height: 100%; background: var(--bar); border-radius: 3px; }
 .axis-row .val {
@@ -96,6 +104,62 @@ select { color: var(--muted); max-width: 170px; }
   white-space: nowrap;
 }
 
+/* 종합 판정: 레이더 + 점수 막대 */
+.judge-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 22px;
+  align-items: center;
+}
+#radar svg { width: 100%; height: auto; display: block; }
+
+/* 도넛 + 범례 목록 */
+.donut-wrap { display: flex; justify-content: center; padding: 4px 0 10px; }
+.donut-wrap svg { width: 134px; height: 134px; display: block; }
+
+.leg-row { padding: 5px 0 6px; border-bottom: 1px solid var(--line-soft); }
+.leg-row:last-child { border-bottom: none; }
+.leg-head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+.leg-name { font-weight: 600; }
+.leg-val {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.leg-sub { font-size: 11.5px; color: var(--muted); margin: 1px 0 0 16px; line-height: 1.5; }
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2.5px;
+  flex: none;
+  display: inline-block;
+}
+
+/* 일별 토큰 차트 */
+#daily-chart svg { width: 100%; height: auto; display: block; }
+
+/* 모델 비중 누적 막대 */
+.stack-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--line-soft);
+}
+.stack-bar .seg { height: 100%; }
+.stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 16px;
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.stack-legend .leg-item { display: inline-flex; align-items: center; }
+.stack-legend .dot { width: 8px; height: 8px; margin-right: 5px; }
+
 .stats { display: flex; }
 .stat { flex: 1; padding: 2px 18px; border-left: 1px solid var(--line); }
 .stat:first-child { border-left: none; padding-left: 0; }
@@ -104,32 +168,104 @@ select { color: var(--muted); max-width: 170px; }
 .stat .v.good { color: var(--good); }
 
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
-.cols3 { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 24px; }
+.cols3 { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 14px; }
+/* 그리드 자식은 내용(긴 파일명 등)이 칸을 밀어내지 못하게 한다 */
+.cols2 > *, .cols3 > * { min-width: 0; }
 
+/* 자주 쓴 도구: 성격별 색 막대 */
 #tool-top { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 32px; }
-.tool-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12.5px;
-  padding: 3px 0;
+.tool-row2 {
+  display: grid;
+  grid-template-columns: minmax(90px, 168px) 1fr 52px;
+  gap: 9px;
+  align-items: center;
+  padding: 3.5px 0;
   border-bottom: 1px solid var(--line-soft);
 }
-.tool-row code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
-.tool-row .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+.t-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t-track { height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
+.t-fill { height: 100%; border-radius: 3px; }
+.t-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11.5px; }
+#tool-legend { margin-top: 9px; }
 
+/* 설정 자산: 3장의 카드 */
+.inv-col {
+  background: #fbfaf7;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 12px 14px 10px;
+}
+.inv-sum {
+  font-size: 11px;
+  color: var(--muted);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed var(--line);
+}
 .inv-row {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   font-size: 12.5px;
-  padding: 3px 0;
+  padding: 3.5px 0;
   border-bottom: 1px solid var(--line-soft);
 }
 .inv-row:last-child { border-bottom: none; }
 .inv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inv-val { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.inv-name.dim-name { color: var(--muted); }
+.inv-val { flex-shrink: 0; margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; }
 .inv-val.ok { color: var(--good); font-weight: 600; }
 .inv-val.dim { color: var(--muted); }
+
+/* CLAUDE.md 상태 점 */
+.st { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.st.on { background: var(--good); }
+.st.off { background: transparent; border: 1.5px solid var(--warn); }
+
+/* 스킬 호출 미니 막대 */
+.s-track {
+  flex: 1;
+  min-width: 28px;
+  height: 5px;
+  background: var(--line-soft);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.s-fill { height: 100%; background: #5b5a8c; border-radius: 3px; }
+
+/* 훅 칩 */
+.hook-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4.5px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.hook-chip:last-child { border-bottom: none; }
+.hk-event {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #3c5374;
+  background: #e9edf3;
+  border-radius: 4px;
+  padding: 1px 7px;
+  flex: none;
+}
+.hk-cmd {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: #56544d;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .rec { padding: 11px 0; border-bottom: 1px solid var(--line-soft); }
 .rec:first-child { padding-top: 2px; }
@@ -215,7 +351,7 @@ select { color: var(--muted); max-width: 170px; }
 
 @media (max-width: 760px) {
   .sheet { padding: 28px 22px; }
-  .cols2, .cols3 { grid-template-columns: 1fr; }
+  .cols2, .cols3, .judge-grid { grid-template-columns: 1fr; }
   .stats { flex-wrap: wrap; }
   .stat { flex-basis: 45%; border-left: none; padding-left: 0; margin-bottom: 8px; }
 }

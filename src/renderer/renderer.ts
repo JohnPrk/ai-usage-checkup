@@ -28,6 +28,143 @@ function fmtUSD(n: number): string {
   return '$' + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(1));
 }
 
+// ---- 차트 공통 ----
+
+const PALETTE = ['#3c5374', '#25683f', '#9c5a06', '#a63434', '#5b5a8c', '#2f6d6a', '#7a4a64', '#b08968'];
+const GRAY = '#9a978f';
+
+// '기타' 류는 항상 회색으로 고정해, 색이 의미를 갖게 한다
+function colorFor(name: string, i: number): string {
+  if (name.startsWith('기타')) return GRAY;
+  return PALETTE[i % PALETTE.length];
+}
+
+interface DonutPart {
+  name: string;
+  value: number;
+  color: string;
+  tip: string;
+}
+
+function donutSVG(parts: DonutPart[], centerValue: string, centerLabel: string): string {
+  const total = parts.reduce((a, p) => a + p.value, 0);
+  if (total <= 0) return '';
+  const R = 44;
+  const C = 2 * Math.PI * R;
+  let acc = 0;
+  const segs = parts
+    .map((p) => {
+      const off = acc / total;
+      acc += p.value;
+      const len = (p.value / total) * C;
+      if (len < 0.8) return ''; // 너무 얇은 조각은 그리지 않는다 (목록에는 남음)
+      return `<circle r="${R}" cx="66" cy="66" fill="none" stroke="${p.color}" stroke-width="15"
+        stroke-dasharray="${Math.max(0.5, len - 1.4).toFixed(2)} ${C.toFixed(2)}"
+        stroke-dashoffset="${(-off * C).toFixed(2)}"><title>${esc(p.tip)}</title></circle>`;
+    })
+    .join('');
+  return `<svg viewBox="0 0 132 132" role="img">
+    <g transform="rotate(-90 66 66)">${segs}</g>
+    <text x="66" y="63" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">${esc(centerValue)}</text>
+    <text x="66" y="79" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(centerLabel)}</text>
+  </svg>`;
+}
+
+function radarSVG(scores: { axis: string; score: number }[]): string {
+  const n = scores.length;
+  if (n < 3) return '';
+  const cx = 160;
+  const cy = 122;
+  const R = 78;
+  const pt = (i: number, r: number): [number, number] => {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  };
+  const ring = (v: number): string =>
+    `<polygon points="${scores.map((_, i) => pt(i, (R * v) / 100).map((c) => c.toFixed(1)).join(',')).join(' ')}"
+      fill="${v === 100 ? '#fbfaf7' : 'none'}" stroke="var(--line)" stroke-width="1"/>`;
+  const spokes = scores
+    .map((_, i) => {
+      const [x, y] = pt(i, R);
+      return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--line-soft)" stroke-width="1"/>`;
+    })
+    .join('');
+  const poly = scores.map((s, i) => pt(i, (R * s.score) / 100).map((c) => c.toFixed(1)).join(',')).join(' ');
+  const dots = scores
+    .map((s, i) => {
+      const [x, y] = pt(i, (R * s.score) / 100);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" fill="var(--bar)"><title>${esc(s.axis)} ${s.score}점</title></circle>`;
+    })
+    .join('');
+  const labels = scores
+    .map((s, i) => {
+      const [x, y] = pt(i, R + 13);
+      const dx = x - cx;
+      const anchor = Math.abs(dx) < 12 ? 'middle' : dx > 0 ? 'start' : 'end';
+      const dy = y < cy - R * 0.6 ? -2 : y > cy + R * 0.5 ? 8 : 4;
+      return `<text x="${x.toFixed(1)}" y="${(y + dy).toFixed(1)}" text-anchor="${anchor}" font-size="10.5" fill="var(--ink)">${esc(s.axis)}</text>`;
+    })
+    .join('');
+  return `<svg viewBox="0 0 320 244" role="img">
+    ${ring(100)}${ring(75)}${ring(50)}${ring(25)}${spokes}
+    <polygon points="${poly}" fill="rgba(60,83,116,0.16)" stroke="var(--bar)" stroke-width="1.6"/>
+    ${dots}${labels}
+  </svg>`;
+}
+
+function dailyChartSVG(daily: { date: string; tokens: number }[]): string {
+  if (!daily.length) return '';
+  const W = 724;
+  const H = 128;
+  const base = 100;
+  const max = Math.max(...daily.map((d) => d.tokens));
+  if (max <= 0) return '';
+  const step = W / daily.length;
+  const barW = Math.min(16, step * 0.62);
+  const bars = daily
+    .map((d, i) => {
+      const h = d.tokens > 0 ? Math.max(2, (d.tokens / max) * (base - 14)) : 0;
+      const x = i * step + (step - barW) / 2;
+      const label = `${Number(d.date.slice(5, 7))}/${Number(d.date.slice(8, 10))}`;
+      const bar = h > 0
+        ? `<rect x="${x.toFixed(1)}" y="${(base - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="var(--bar)" opacity="${d.tokens === max ? 1 : 0.78}"><title>${label} · ${fmtTokens(d.tokens)} 토큰</title></rect>`
+        : '';
+      const tick = i % 5 === 0 || i === daily.length - 1
+        ? `<text x="${(i * step + step / 2).toFixed(1)}" y="${base + 16}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${label}</text>`
+        : '';
+      return bar + tick;
+    })
+    .join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">
+    <line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>
+    <text x="${W}" y="10" text-anchor="end" font-size="9.5" fill="var(--muted)">하루 최대 ${esc(fmtTokens(max))}</text>
+    ${bars}
+  </svg>`;
+}
+
+// 도구를 성격별로 묶어 색을 입힌다. 이름만으로는 뭐 하는 도구인지 안 보여서.
+const TOOL_GROUPS: { label: string; color: string; re: RegExp }[] = [
+  { label: '읽기·탐색', color: '#25683f', re: /^(Read|Grep|Glob|LS|NotebookRead|WebFetch|WebSearch)$/ },
+  { label: '파일 수정', color: '#3c5374', re: /^(Edit|Write|NotebookEdit)$/ },
+  { label: '터미널', color: '#9c5a06', re: /^Bash$/ },
+  { label: '작업·대화', color: '#5b5a8c', re: /^(Task\w*|TodoWrite|AskUserQuestion|Skill|Agent|ToolSearch|ExitPlanMode|EnterPlanMode)$/ },
+  { label: 'MCP 연동', color: '#2f6d6a', re: /^mcp__/ },
+];
+const TOOL_OTHER = { label: '기타', color: GRAY };
+
+function toolGroup(name: string): { label: string; color: string } {
+  for (const g of TOOL_GROUPS) if (g.re.test(name)) return g;
+  return TOOL_OTHER;
+}
+
+function shortModel(m: string): string {
+  const full = m.match(/^claude-([a-z]+)-(\d+)-(\d+)/);
+  if (full) return `${full[1]} ${full[2]}.${full[3]}`;
+  const major = m.match(/^claude-([a-z]+)-(\d+)/);
+  if (major) return `${major[1]} ${major[2]}`;
+  return m;
+}
+
 window.api.onProgress((p) => {
   const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
   ($('bar-fill') as HTMLElement).style.width = pct + '%';
@@ -75,6 +212,8 @@ function render(r: UsageReport, snapshotDate?: string): void {
   renderLevel(r);
   renderAxes(r);
   renderMetrics(r);
+  renderDaily(r);
+  renderModelMix(r);
   renderCategories(r);
   renderActivities(r);
   renderInventory(r);
@@ -135,16 +274,59 @@ function renderLevel(r: UsageReport): void {
 }
 
 function renderAxes(r: UsageReport): void {
+  $('radar').innerHTML = radarSVG(r.scores);
+  // desc/detail: 축이 뭘 재는지 + 이번 측정의 실제 입력값 (구버전 스냅샷에는 없어서 막대만 그린다)
   $('axes').innerHTML = r.scores
     .map(
       (s) => `
-    <div class="axis-row">
-      <span class="name">${esc(s.axis)}</span>
-      <div class="track"><div class="fill" style="width:${s.score}%"></div></div>
-      <span class="val">${s.score}점</span>
+    <div class="axis-item">
+      <div class="axis-row">
+        <span class="name">${esc(s.axis)}</span>
+        <div class="track"><div class="fill" style="width:${s.score}%"></div></div>
+        <span class="val">${s.score}점</span>
+      </div>
+      ${s.desc ? `<div class="axis-sub">${esc(s.desc)}</div>` : ''}
+      ${s.detail ? `<div class="axis-detail">${esc(s.detail)}</div>` : ''}
     </div>`
     )
     .join('');
+}
+
+// 구버전 스냅샷에는 daily가 없으니 블록째 숨긴다
+function renderDaily(r: UsageReport): void {
+  const block = $('daily-block');
+  const svg = r.daily && r.daily.length ? dailyChartSVG(r.daily) : '';
+  if (!svg) {
+    block.classList.add('hidden');
+    return;
+  }
+  block.classList.remove('hidden');
+  $('daily-chart').innerHTML = svg;
+}
+
+function renderModelMix(r: UsageReport): void {
+  const block = $('model-block');
+  const mix = (r.modelMix ?? []).filter((m) => m.tokens > 0);
+  const total = mix.reduce((a, m) => a + m.tokens, 0);
+  if (total <= 0) {
+    block.classList.add('hidden');
+    return;
+  }
+  block.classList.remove('hidden');
+  const segs = mix
+    .map((m, i) => {
+      const w = (m.tokens / total) * 100;
+      if (w < 0.4) return '';
+      return `<div class="seg" style="width:${w.toFixed(2)}%;background:${colorFor(m.model, i)}" title="${esc(shortModel(m.model))} ${m.pct}%"></div>`;
+    })
+    .join('');
+  const legend = mix
+    .map(
+      (m, i) =>
+        `<span class="leg-item"><span class="dot" style="background:${colorFor(m.model, i)}"></span>${esc(shortModel(m.model))} ${m.pct}% · ${esc(fmtTokens(m.tokens))}</span>`
+    )
+    .join('');
+  $('model-mix').innerHTML = `<div class="stack-bar">${segs}</div><div class="stack-legend">${legend}</div>`;
 }
 
 function renderMetrics(r: UsageReport): void {
@@ -167,17 +349,49 @@ function renderMetrics(r: UsageReport): void {
 }
 
 function renderCategories(r: UsageReport): void {
+  $('cat-donut').innerHTML = donutSVG(
+    r.categories.map((c, i) => ({
+      name: c.name,
+      value: c.sessions,
+      color: colorFor(c.name, i),
+      tip: `${c.name} ${c.pct}% (${c.sessions}회)`,
+    })),
+    String(r.sessions),
+    '세션'
+  );
   $('categories').innerHTML = r.categories
-    .map(
-      (c) => `
-    <div class="axis-row">
-      <span class="name">${esc(c.name)}</span>
-      <div class="track"><div class="fill" style="width:${c.pct}%"></div></div>
-      <span class="val">${c.pct}% (${c.sessions}회)</span>
-    </div>`
-    )
+    .map((c, i) => {
+      // 이 분야가 실제 어떤 폴더의 세션인지 펼쳐 보여준다
+      let sub = '';
+      if (c.projects && c.projects.length) {
+        const shown = c.projects.map((p) => `${esc(p.name)} ${p.sessions}`).join(' · ');
+        const rest = c.sessions - c.projects.reduce((a, p) => a + p.sessions, 0);
+        sub = `<p class="leg-sub">${shown}${rest > 0 ? ` · 그 외 ${rest}회` : ''}</p>`;
+      }
+      return `
+    <div class="leg-row">
+      <div class="leg-head">
+        <span class="dot" style="background:${colorFor(c.name, i)}"></span>
+        <span class="leg-name">${esc(c.name)}</span>
+        <span class="leg-val">${c.pct}% · ${c.sessions}회</span>
+      </div>
+      ${sub}
+    </div>`;
+    })
     .join('');
 }
+
+// 각 활동이 실제로 무엇을 뜻하는지 한 줄 설명 (분류 규칙과 1:1)
+const ACT_DESC: Record<string, string> = {
+  '대화·설계': '파일·도구 없이 말로만 답한 턴. 질문 답변, 설계 논의',
+  '명령 실행': '터미널 명령을 돌린 턴. 빌드·테스트·git·파일 탐색',
+  '코드 읽기·검수': '파일을 읽고 검색만 한 턴. 수정 없음',
+  '서버·스크립트 코드': '로직·서버 코드 파일을 고친 턴',
+  '프론트 코드': '화면 쪽 파일을 고친 턴',
+  '문서·설정 파일': '문서·설정 파일을 고친 턴',
+  '컴퓨터·브라우저 제어': '화면을 직접 클릭·조작한 턴',
+  '기타 도구': '그 외 도구를 쓴 턴. 스킬·서브에이전트 등',
+};
 
 // 구버전 저장본에는 activities/inventory가 없을 수 있어 블록 단위로 숨긴다
 function renderActivities(r: UsageReport): void {
@@ -190,21 +404,56 @@ function renderActivities(r: UsageReport): void {
   }
   actBlock.classList.remove('hidden');
   toolsBlock.classList.remove('hidden');
+  const actTotal = r.activities.reduce((a, x) => a + x.total, 0);
+  $('act-donut').innerHTML = donutSVG(
+    r.activities.map((a, i) => ({
+      name: a.name,
+      value: a.total,
+      color: colorFor(a.name, i),
+      tip: `${a.name} ${a.pct}% (${fmtTokens(a.total)} 토큰)`,
+    })),
+    fmtTokens(actTotal),
+    '토큰'
+  );
   $('activities').innerHTML = r.activities
-    .map(
-      (a) => `
-    <div class="axis-row" title="메시지 ${a.msgs.toLocaleString()}개 · 출력 토큰 ${fmtTokens(a.output)}">
-      <span class="name">${esc(a.name)}</span>
-      <div class="track"><div class="fill" style="width:${a.pct}%"></div></div>
-      <span class="val">${a.pct}% · ${fmtTokens(a.total)}</span>
-    </div>`
-    )
+    .map((a, i) => {
+      const desc = ACT_DESC[a.name] ?? '';
+      // 실제 내용물 상위 항목: 명령 실행이면 명령어, 파일 작업이면 확장자
+      const keys = Object.keys(a.details ?? {}).slice(0, 3);
+      const items = keys.length
+        ? '주로 ' + keys.map((k) => (a.name === '명령 실행' ? k : '.' + k)).join('·')
+        : '';
+      const sub = desc || items ? `<p class="leg-sub">${esc(desc)}${desc && items ? ' · ' : ''}${esc(items)}</p>` : '';
+      return `
+    <div class="leg-row" title="메시지 ${a.msgs.toLocaleString()}개 · 출력 토큰 ${fmtTokens(a.output)}">
+      <div class="leg-head">
+        <span class="dot" style="background:${colorFor(a.name, i)}"></span>
+        <span class="leg-name">${esc(a.name)}</span>
+        <span class="leg-val">${a.pct}% · ${fmtTokens(a.total)}</span>
+      </div>
+      ${sub}
+    </div>`;
+    })
     .join('');
-  $('tool-top').innerHTML = (r.toolTop ?? [])
-    .map(
-      (t) =>
-        `<div class="tool-row"><code>${esc(shortTool(t.name))}</code><span class="num">${t.n.toLocaleString()}</span></div>`
-    )
+  const tools = r.toolTop ?? [];
+  const maxN = Math.max(1, ...tools.map((t) => t.n));
+  $('tool-top').innerHTML = tools
+    .map((t) => {
+      const g = toolGroup(t.name);
+      // sqrt 스케일: 1등(Bash)이 압도해도 꼬리가 보이게
+      const w = Math.sqrt(t.n / maxN) * 100;
+      return `
+    <div class="tool-row2" title="${esc(t.name)} · ${esc(g.label)}">
+      <code class="t-name">${esc(shortTool(t.name))}</code>
+      <div class="t-track"><div class="t-fill" style="width:${w.toFixed(1)}%;background:${g.color}"></div></div>
+      <span class="t-num">${t.n.toLocaleString()}</span>
+    </div>`;
+    })
+    .join('');
+  const seen = new Set(tools.map((t) => toolGroup(t.name).label));
+  $('tool-legend').innerHTML = [...TOOL_GROUPS, TOOL_OTHER]
+    .filter((g) => seen.has(g.label))
+    .map((g) => `<span class="leg-item"><span class="dot" style="background:${g.color}"></span>${esc(g.label)}</span>`)
     .join('');
 }
 
@@ -222,37 +471,57 @@ function renderInventory(r: UsageReport): void {
   card.classList.remove('hidden');
   const inv = r.inventory;
   const kb = (b: number): string => (b >= 1024 ? (b / 1024).toFixed(1) + 'KB' : b + 'B');
-  const invRow = (name: string, ok: boolean, extra: string): string =>
-    `<div class="inv-row"><span class="inv-name">${esc(name)}</span><span class="inv-val ${ok ? 'ok' : 'dim'}">${ok ? '✓ ' + esc(extra) : '없음'}</span></div>`;
 
-  $('inv-claudemd').innerHTML = [
-    invRow('전역 ~/.claude', inv.globalClaudeMd.exists, kb(inv.globalClaudeMd.bytes)),
-    ...inv.projectClaudeMds.map((p) => invRow(p.project, p.has, kb(p.bytes))),
-  ].join('');
-
-  $('inv-skills').innerHTML = inv.skills.length
-    ? inv.skills
-        .map(
-          (s) => `
-      <div class="inv-row" title="${esc(s.description)}">
-        <span class="inv-name">${esc(s.name)}</span>
-        <span class="inv-val ${s.uses === 0 ? 'dim' : ''}">${s.uses}회</span>
+  // CLAUDE.md: 상태 점 + 작성 현황 요약
+  const mdRows = [
+    { name: '전역 ~/.claude', has: inv.globalClaudeMd.exists, bytes: inv.globalClaudeMd.bytes },
+    ...inv.projectClaudeMds.map((p) => ({ name: p.project, has: p.has, bytes: p.bytes })),
+  ];
+  const mdDone = mdRows.filter((m) => m.has).length;
+  $('inv-claudemd').innerHTML =
+    `<p class="inv-sum">${mdDone}/${mdRows.length}곳 작성됨</p>` +
+    mdRows
+      .map(
+        (m) => `
+      <div class="inv-row">
+        <span class="st ${m.has ? 'on' : 'off'}"></span>
+        <span class="inv-name">${esc(m.name)}</span>
+        <span class="inv-val ${m.has ? 'ok' : 'dim'}">${m.has ? esc(kb(m.bytes)) : '없음'}</span>
       </div>`
-        )
+      )
+      .join('');
+
+  // 스킬: 호출 횟수를 미니 막대로
+  const usedSkills = inv.skills.filter((s) => s.uses > 0).length;
+  const maxUses = Math.max(1, ...inv.skills.map((s) => s.uses));
+  $('inv-skills').innerHTML = inv.skills.length
+    ? `<p class="inv-sum">${inv.skills.length}개 중 ${usedSkills}개 호출됨</p>` +
+      inv.skills
+        .map((s) => {
+          const w = s.uses > 0 ? Math.max(6, Math.sqrt(s.uses / maxUses) * 100) : 0;
+          return `
+      <div class="inv-row" title="${esc(s.description)}">
+        <span class="inv-name ${s.uses === 0 ? 'dim-name' : ''}">${esc(s.name)}</span>
+        <div class="s-track">${w > 0 ? `<div class="s-fill" style="width:${w.toFixed(0)}%"></div>` : ''}</div>
+        <span class="inv-val ${s.uses === 0 ? 'dim' : ''}">${s.uses}회</span>
+      </div>`;
+        })
         .join('')
     : '<p class="hint">~/.claude/skills에 스킬이 없어요</p>';
 
+  // 훅: 이벤트 배지 + 스크립트 칩
   $('inv-hooks').innerHTML = inv.hooks.length
-    ? inv.hooks
+    ? `<p class="inv-sum">${inv.hooks.length}개 설정됨</p>` +
+      inv.hooks
         .map(
           (h) => `
-      <div class="inv-row" title="matcher: ${esc(h.matcher || '(전체)')}">
-        <span class="inv-name">${esc(h.event)}</span>
-        <span class="inv-val">${esc(h.command)}</span>
+      <div class="hook-chip" title="matcher: ${esc(h.matcher || '(전체)')}">
+        <span class="hk-event">${esc(h.event)}</span>
+        <code class="hk-cmd">${esc(h.command)}</code>
       </div>`
         )
         .join('')
-    : '<p class="hint">설정된 훅이 없어요</p>';
+    : '<p class="hint">설정된 훅이 없어요<br/>반복 확인(린트·알림)을 자동화할 수 있어요</p>';
 }
 
 function renderRecs(

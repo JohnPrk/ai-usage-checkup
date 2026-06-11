@@ -132,11 +132,25 @@ function buildPrompt(r: Report): string {
     훅구성: r.inventory.hooks.map((hk) => `${hk.event}:${hk.command}`),
     행동: {
       중단횟수: r.behavior.interruptions,
+      // 구버전 스냅샷에는 없을 수 있는 필드들
+      중단per100msg: r.behavior.escPer100 != null ? round2(r.behavior.escPer100) : undefined,
+      지시형메시지수: r.behavior.directiveMsgs,
+      본문있는지시비중: r.behavior.substantiveDirectiveShare != null ? round2(r.behavior.substantiveDirectiveShare) : undefined,
       서브에이전트실행: r.behavior.subagentRuns,
       compact사용세션: r.behavior.compactSessions,
       compact없는긴세션: r.behavior.longNoCompactSessions,
       평균세션분: Math.round(r.behavior.avgSessionMin),
-      질문형비율: round2(r.behavior.questionRatio),
+      질문메시지비율: round2(r.behavior.questionRatio),
+      // 구버전 스냅샷에는 learningSignals가 없을 수 있다
+      학습신호per100msg: r.behavior.learningSignals
+        ? {
+            꼬리체인: round2(r.behavior.learningSignals.chainPer100),
+            깊은체인: round2(r.behavior.learningSignals.chain3Per100),
+            이어받기: round2(r.behavior.learningSignals.grabPer100),
+            왜원리: round2(r.behavior.learningSignals.whyPer100),
+            이해확인: round2(r.behavior.learningSignals.confirmPer100),
+          }
+        : undefined,
       자주쓴커맨드: r.behavior.topCommands,
       CLAUDEmd: r.behavior.claudeMd.map((c) => ({ project: c.project, has: c.has })),
     },

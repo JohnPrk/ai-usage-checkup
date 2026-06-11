@@ -1,4 +1,46 @@
+import * as os from 'os';
+import * as path from 'path';
 import { Behavior, Inventory, Rec, SessionSummary } from './types';
+
+// 세션을 연 위치가 진짜 프로젝트 폴더인지, 홈·바탕화면처럼 폴더 없이 연 것인지 구분한다
+type DirKind = 'project' | 'loose' | 'temp';
+
+function dirKind(s: SessionSummary): DirKind {
+  const cwd = s.cwd;
+  if (cwd) {
+    if (/\/(?:private\/)?(?:var\/folders|tmp)\//.test(cwd + '/')) return 'temp';
+    const home = os.homedir();
+    if (cwd === home) return 'loose';
+    const rel = path.relative(home, cwd);
+    if (['Desktop', 'Downloads', 'Documents'].includes(rel)) return 'loose';
+    return 'project';
+  }
+  // cwd가 기록 안 된 드문 케이스: 폴더 이름 문자열로 근사
+  const pd = s.projectDir;
+  if (/^-?(private-)?(var-folders|tmp)/i.test(pd)) return 'temp';
+  if (/-(Desktop|Downloads|Documents)$/i.test(pd)) return 'loose';
+  return 'loose';
+}
+
+// 드릴다운에 보여줄 위치 라벨: 프로젝트면 폴더명, 아니면 한글 라벨
+export function placeLabel(s: SessionSummary): string {
+  const kind = dirKind(s);
+  if (kind === 'temp') return '임시 폴더';
+  if (s.cwd) {
+    const home = os.homedir();
+    if (s.cwd === home) return '홈 폴더';
+    const rel = path.relative(home, s.cwd);
+    if (rel === 'Desktop') return '바탕화면';
+    if (rel === 'Downloads') return '다운로드';
+    if (rel === 'Documents') return '문서 폴더';
+    return path.basename(s.cwd);
+  }
+  const pd = s.projectDir;
+  if (/-Desktop$/i.test(pd)) return '바탕화면';
+  if (/-Downloads$/i.test(pd)) return '다운로드';
+  if (/-Documents$/i.test(pd)) return '문서 폴더';
+  return pd.split('-').filter(Boolean).slice(-2).join('-') || '알 수 없음';
+}
 
 export function categorize(s: SessionSummary): string {
   const dir = (s.projectDir + ' ' + (s.cwd ?? '')).toLowerCase();
@@ -8,7 +50,9 @@ export function categorize(s: SessionSummary): string {
   const p = s.firstPrompt;
   if (/(알고리즘|백준|문제 풀|공부)/.test(p)) return '학습';
   if (/(회고|블로그|글 써|README|독후)/.test(p)) return '글·회고';
-  return '기타·토이';
+  if (/(ppt|pptx|피피티|슬라이드|발표자료|가사|엑셀|xlsx|스프레드시트|pdf|docx|워드)/i.test(p)) return '문서 작업';
+  // 위 어디에도 안 걸리면: 실제 프로젝트 폴더에서 연 세션은 사이드 프로젝트로 본다
+  return dirKind(s) === 'project' ? '토이·앱 개발' : '기타';
 }
 
 export interface HeuristicInput {
@@ -22,9 +66,12 @@ export interface HeuristicInput {
 
 const clamp = (v: number): number => Math.max(5, Math.min(98, Math.round(v)));
 
-export function buildScores(h: HeuristicInput): { axis: string; score: number }[] {
+export function buildScores(
+  h: HeuristicInput
+): { axis: string; score: number; desc: string; detail: string }[] {
   const b = h.behavior;
   const n = Math.max(1, h.mainCount);
+  const pctOf = (v: number) => Math.round(v * 100);
   const claudeMdHave = b.claudeMd.length
     ? b.claudeMd.filter((c) => c.has).length / b.claudeMd.length
     : 0;
@@ -35,25 +82,71 @@ export function buildScores(h: HeuristicInput): { axis: string; score: number }[
       15 * Math.min(1, (b.compactSessions / n) * 5) -
       (b.avgSessionMin > 120 ? 10 : 0)
   );
+  // 프롬프트 구체성 = 의도를 한 번에 전달하는 습관. 첫 메시지 길이(셋업)뿐 아니라
+  // 세션 중간 지시에 맥락이 담기는 비중(80자+ 지시)을 함께 본다. 포화점: 첫 메시지 180자, 본문 지시 28%.
+  // Esc 중단은 출발이 어긋났다는 결과 신호라 감점. (정정 루프는 측정 결과 시도 크기에 비례해 신호로 안 씀 — 2026-06-11)
   const promptScore = clamp(
-    25 + Math.min(55, b.medianFirstPromptLen / 4) - Math.min(20, (b.interruptions / n) * 25)
+    20 +
+      Math.min(30, b.medianFirstPromptLen / 6) +
+      Math.min(35, b.substantiveDirectiveShare * 125) -
+      Math.min(15, b.escPer100 * 1.8)
   );
+  // 기능 활용도 = 만들어 둔 자산(CLAUDE.md·스킬·훅)과 위임 수단(서브에이전트·커맨드)을 실제로 쓰는가.
+  // compact는 컨텍스트 운용 축에서만 본다 (이전엔 양쪽에 들어가 이중 계산이었음)
+  const usedSkills = h.inventory.skills.filter((s) => s.uses > 0).length;
   const featureScore = clamp(
-    15 +
-      (b.subagentRuns > 0 ? 18 : 0) +
-      (b.compactSessions > 0 ? 15 : 0) +
-      Math.min(20, b.topCommands.length * 5) +
-      claudeMdHave * 25
+    10 +
+      claudeMdHave * 25 +
+      Math.min(15, b.topCommands.length * 5) +
+      (b.subagentRuns > 0 ? 15 : 0) +
+      (h.inventory.skills.length > 0 ? 8 : 0) +
+      (usedSkills > 0 ? 12 : 0) +
+      (h.inventory.hooks.length > 0 ? 15 : 0)
   );
   const costScore = clamp(h.cacheHitRate * 100 - Math.max(0, h.recacheRate - 0.35) * 60);
-  const learningScore = clamp(25 + b.questionRatio * 70);
+  // 학습 주도성 = 받은 답을 그대로 두지 않는 습관.
+  // 파고들기(꼬리 체인 + 깊은 체인 + 이어받기) > 왜·원리 > 이해 확인 순 가중, 단순 질문율은 보조 신호.
+  // 상한은 신호별 포화점: 한 신호가 비정상적으로 커도(긴 문서 붙여넣기 등) 점수를 독식하지 못하게 한다
+  const lg = b.learningSignals;
+  const learningScore = clamp(
+    25 +
+      Math.min(35, (lg.chainPer100 + lg.chain3Per100 + lg.grabPer100) * 3) +
+      Math.min(20, lg.whyPer100 * 1.75) +
+      Math.min(8, lg.confirmPer100 * 5) +
+      Math.min(10, b.questionRatio * 20)
+  );
 
   return [
-    { axis: '프롬프트 구체성', score: promptScore },
-    { axis: '학습 주도성', score: learningScore },
-    { axis: '컨텍스트 운용', score: contextScore },
-    { axis: '비용·캐시 효율', score: costScore },
-    { axis: '기능 활용도', score: featureScore },
+    {
+      axis: '프롬프트 구체성',
+      score: promptScore,
+      desc: '요청에 맥락·제약을 담아 의도를 한 번에 전달하는가',
+      detail: `첫 메시지 중앙값 ${b.medianFirstPromptLen}자 · 80자 이상 지시 ${pctOf(b.substantiveDirectiveShare)}% · 중단 ${b.escPer100.toFixed(1)}회/100메시지`,
+    },
+    {
+      axis: '학습 주도성',
+      score: learningScore,
+      desc: '받은 답을 그대로 두지 않고 꼬리질문으로 파고드는가',
+      detail: `100메시지당 꼬리체인 ${lg.chainPer100.toFixed(1)} · 왜·원리 ${lg.whyPer100.toFixed(1)} · 질문 비율 ${pctOf(b.questionRatio)}%`,
+    },
+    {
+      axis: '컨텍스트 운용',
+      score: contextScore,
+      desc: '대화가 커지기 전에 compact·clear로 끊어 토큰 낭비를 막는가',
+      detail: `2시간+ 무압축 세션 ${b.longNoCompactSessions}개 · compact 쓴 세션 ${b.compactSessions}개 · 평균 ${Math.round(b.avgSessionMin)}분`,
+    },
+    {
+      axis: '비용·캐시 효율',
+      score: costScore,
+      desc: '같은 컨텍스트를 다시 계산하지 않고 캐시에서 읽는 비율',
+      detail: `캐시 적중 ${pctOf(h.cacheHitRate)}% · 캐시 재작성 ${pctOf(h.recacheRate)}%`,
+    },
+    {
+      axis: '기능 활용도',
+      score: featureScore,
+      desc: 'CLAUDE.md·스킬·훅·서브에이전트 같은 도구를 실제로 쓰는가',
+      detail: `CLAUDE.md ${b.claudeMd.filter((c) => c.has).length}/${b.claudeMd.length} · 커맨드 ${b.topCommands.length}종 · 스킬 ${usedSkills}/${h.inventory.skills.length} 사용 · 훅 ${h.inventory.hooks.length}개 · 서브에이전트 ${b.subagentRuns}회`,
+    },
   ];
 }
 
@@ -93,14 +186,24 @@ export function buildRecommendations(h: HeuristicInput): Rec[] {
       script: '"Explore 서브에이전트로 이 레포 인증 구조 훑고 요약만 알려줘"',
     });
   }
-  if (b.interruptions / n > 0.3) {
+  if (b.escPer100 > 4) {
     out.push({
       id: 'interrupt',
       severity: 'mid',
       title: '중단 후 재지시 줄이기',
-      now: `응답을 끊고 다시 지시한 횟수가 ${b.interruptions}회예요. 첫 요청에 제약이 빠졌다는 신호예요.`,
+      now: `메시지 100개당 ${b.escPer100.toFixed(1)}회꼴로 응답을 끊고 다시 지시했어요(총 ${b.interruptions}회). 요청에 제약이 빠졌다는 신호예요.`,
       better: '처음 요청에 범위, 건드리지 말 것, 완료 기준을 같이 적어주세요.',
       script: '"<할 일>. 단 <건드리지 말 것>은 유지. 완료 기준: <기준>" 형태로 요청',
+    });
+  }
+  if (b.directiveMsgs >= 30 && b.substantiveDirectiveShare < 0.15) {
+    out.push({
+      id: 'vague-directives',
+      severity: 'mid',
+      title: '세션 중간 지시에도 맥락 담기',
+      now: `작업 지시 ${b.directiveMsgs}개 중 80자를 넘는 건 ${Math.round(b.substantiveDirectiveShare * 100)}%뿐이에요. 첫 메시지 이후엔 대부분 한 줄 지시로 맡기고 있어요.`,
+      better: '이어지는 지시에도 대상 파일·범위·완료 기준을 한 줄씩 담아주세요. 모호한 지시는 어긋난 결과와 재작업으로 돌아와요.',
+      script: '"<할 일>. 대상: <파일/범위>. 완료 기준: <기준>" 형태로 후속 지시',
     });
   }
   if (h.recacheRate > 0.5) {
@@ -113,13 +216,13 @@ export function buildRecommendations(h: HeuristicInput): Rec[] {
       script: '자리 비우기 전: "여기까지 정리하고 다음 할 일 목록만 남겨줘" 후 /compact',
     });
   }
-  if (b.questionRatio < 0.2) {
+  if (b.learningSignals.chainPer100 + b.learningSignals.grabPer100 < 2 && b.questionRatio < 0.25) {
     out.push({
       id: 'learning',
       severity: 'mid',
-      title: '받아쓰기보다 질문',
-      now: '요청 대부분이 "~해줘" 형태예요. 교육 기간에는 정답을 받는 것보다 이유를 묻는 게 남아요.',
-      better: '코드를 받기 전에 "왜 이 방식인지", "다른 선택지는 뭔지"를 먼저 물어보세요.',
+      title: '받은 답에 꼬리질문 달기',
+      now: '답을 받은 뒤 되묻는 꼬리질문이 거의 없어요. 받아쓰기 위주로 쓰고 있다는 신호예요.',
+      better: '답이 오면 "왜 이 방식인지", "그럼 ~한 경우는 어떻게 되는지"를 한 번 더 파보세요.',
       script: '"정답 코드 말고, 내 코드의 문제 2가지를 질문 형태로 던져줘"',
     });
   }
