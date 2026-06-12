@@ -1,7 +1,7 @@
 {
   "name": "ai-usage-checkup",
-  "productName": "AI 성적표",
-  "version": "0.6.0",
+  "productName": "AI 분석 리포트",
+  "version": "0.6.1",
   "description": "Claude Code 사용 패턴 분석 + opus 코칭 데스크탑 앱",
   "main": "dist/main/main.js",
   "scripts": {
@@ -29,11 +29,16 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": true
+      "notarize": true,
+      "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}"
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}"
     }
   },
   "devDependencies": {

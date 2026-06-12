@@ -19,7 +19,7 @@ function createWindow(): void {
     y: workArea.y,
     minWidth: 880,
     minHeight: 640,
-    title: 'AI 성적표',
+    title: 'AI 분석 리포트',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
     },
@@ -43,7 +43,7 @@ app.whenReady().then(() => {
   createWindow();
 });
 
-// 앱 이름이 'AI Usage Checkup' → 'AI 성적표'로 바뀌면서 userData 폴더도 바뀐다.
+// 앱 이름이 'AI Usage Checkup' → 'AI 분석 리포트'로 바뀌면서 userData 폴더도 바뀐다.
 // 옛 폴더에만 스냅샷이 있으면 새 폴더로 한 번 복사해 추이를 잇는다.
 function migrateSnapshots(): void {
   try {
