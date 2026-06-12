@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- V8 JIT. 하드닝 런타임(hardenedRuntime)을 켜면 Electron 의 V8 JIT 가
+       막히므로 명시적으로 허용해야 한다. 없으면 앱 기동 즉시 크래시. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Electron/V8 가 서명되지 않은 실행 메모리를 쓴다. 하드닝 런타임 필수 항목. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- 서명되지 않은 dylib 로딩 허용. 지금은 네이티브 런타임 의존성이 없어
+       엄밀히는 불필요하지만, Developer ID(샌드박스 없음) 배포라 켜도 무해하고
+       향후 네이티브 모듈 추가 시 library validation 크래시를 예방한다. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
