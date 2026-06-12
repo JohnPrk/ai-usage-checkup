@@ -10,7 +10,7 @@
     "cli": "node dist/core/cli.js",
     "predist": "node scripts/ensure-nfd.mjs",
     "dist": "npm run build && electron-builder",
-    "dist:mac": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --mac --arm64",
+    "dist:mac": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --mac --arm64 --publish never",
     "dist:win": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --win --x64"
   },
   "build": {
