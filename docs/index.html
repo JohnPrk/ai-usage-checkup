@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 리포트 · Claude Code 사용 습관 진단</title>
+<meta name="description" content="내 Claude Code 사용 기록을 로컬에서 분석해 5개 축으로 점수화하고, 더 잘 쓰는 법을 추천해 주는 데스크탑 앱.">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", system-ui, sans-serif;
+    line-height: 1.7;
+    color: #1d1d1f;
+    background: #fbfbfd;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 80px 24px 72px; }
+  h1 { font-size: 34px; letter-spacing: -0.025em; margin: 0 0 10px; }
+  .tagline { font-size: 19px; color: #6e6e73; margin: 0 0 40px; }
+  h2 { font-size: 20px; letter-spacing: -0.01em; margin: 44px 0 12px; }
+  p, li { font-size: 16px; color: #2b2b30; }
+  ul { padding-left: 22px; }
+  li { margin: 8px 0; }
+  .axes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; padding: 0; list-style: none; }
+  .axes li { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 14px 16px; margin: 0; font-weight: 600; }
+  .links { margin-top: 40px; padding-top: 28px; border-top: 1px solid #e4e4e7; }
+  .links a { display: inline-block; margin-right: 18px; color: #0066cc; text-decoration: none; font-size: 16px; }
+  .links a:hover { text-decoration: underline; }
+  .privacy-note { background: #f0f4ff; border: 1px solid #d8e2ff; border-radius: 12px; padding: 16px 18px; font-size: 15px; color: #2b3a67; margin-top: 18px; }
+  footer { margin-top: 56px; color: #8a8a8f; font-size: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #f5f5f7; background: #000; }
+    .tagline, footer { color: #98989d; }
+    p, li { color: #d4d4d8; }
+    h1, h2 { color: #f5f5f7; }
+    .axes li { background: #1c1c1e; border-color: #2c2c2e; }
+    .links { border-color: #2c2c2e; }
+    .links a { color: #4ca3ff; }
+    .privacy-note { background: #11203f; border-color: #1e3a6b; color: #c9d8ff; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI 리포트</h1>
+  <p class="tagline">Claude Code를 얼마나 잘 쓰고 있는지 진단해 주는 데스크탑 앱.</p>
+
+  <p>
+    내 컴퓨터의 Claude Code 세션 기록(최근 30일)을 읽어서, 무엇에 어떻게 쓰고 있는지
+    분석하고 5개 축으로 점수를 매깁니다. 더 잘 쓰기 위한 구체적인 추천도 함께 제공합니다.
+  </p>
+
+  <h2>무엇을 보여 주나요</h2>
+  <ul class="axes">
+    <li>프롬프트 구체성</li>
+    <li>학습 주도성</li>
+    <li>컨텍스트 운용</li>
+    <li>비용·캐시 효율</li>
+    <li>기능 활용도</li>
+  </ul>
+  <ul>
+    <li>세션을 작업 의도별(미션 개발 · 학습 · 글쓰기 · 기타)로 자동 분류</li>
+    <li>토큰·캐시 사용량과 모델 믹스 집계</li>
+    <li>지금 바로 적용할 수 있는 규칙 기반 추천</li>
+    <li>익명 리더보드에서 다른 사용자 대비 내 순위 확인</li>
+  </ul>
+
+  <h2>개인정보</h2>
+  <div class="privacy-note">
+    분석은 전부 사용자 컴퓨터 안에서 동작합니다. 로그인이 없고, 대화 내용·파일 경로·실명·이메일을
+    수집하지 않습니다. 리더보드를 위해 전송되는 정보는 익명 점수와 사용자가 선택한 닉네임뿐입니다.
+  </div>
+
+  <div class="links">
+    <a href="./privacy.html">개인정보 처리방침</a>
+    <a href="https://github.com/JohnPrk/ai-usage-checkup">GitHub · 지원 / 문의</a>
+  </div>
+
+  <footer>
+    문의: <a href="mailto:john3641493@gmail.com" style="color:inherit">john3641493@gmail.com</a>
+  </footer>
+</div>
+</body>
+</html>
