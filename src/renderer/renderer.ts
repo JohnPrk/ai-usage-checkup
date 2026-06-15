@@ -1,5 +1,9 @@
-// DOM lib에 동명의 Report 인터페이스가 있어 UsageReport로 구분한다
-type UsageReport = Awaited<ReturnType<typeof window.api.analyze>>;
+// DOM lib에 동명의 Report 인터페이스가 있어 UsageReport로 구분한다.
+// analyze는 폴더 미허용(MAS) 시 { status: 'need_access' }를 반환할 수 있어 그건 제외한다.
+type UsageReport = Exclude<Awaited<ReturnType<typeof window.api.analyze>>, { status: string }>;
+// 리더보드 뷰/행 타입 (renderer는 전역 스크립트라 import 대신 api 반환 타입에서 끌어온다)
+type Leaderboard = NonNullable<Awaited<ReturnType<typeof window.api.leaderboard>>>;
+type LbRow = Leaderboard['top'][number];
 
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
@@ -8,6 +12,8 @@ const $ = (id: string): HTMLElement => {
 };
 
 let running = false;
+// 세부 수치 팝업이 참조할 현재 리포트 (구조화된 metrics를 data-attribute로 넘기기 어려워 인덱스로 조회)
+let modalReport: UsageReport | null = null;
 
 function esc(s: string): string {
   return s
@@ -29,7 +35,8 @@ function fmtUSD(n: number): string {
 
 // ---- 차트 공통 ----
 
-const PALETTE = ['#4a78d0', '#2ea35c', '#e0902a', '#e35d54', '#8268d8', '#26b3a8', '#d364a0', '#caa23f'];
+// 채도를 낮춘 통일감 있는 팔레트 (무지개처럼 알록달록하지 않게)
+const PALETTE = ['#5b7fab', '#5f9576', '#c39a63', '#bd7268', '#8079a8', '#5d9498', '#a87e94', '#9a8d5e'];
 const GRAY = '#a8a59c';
 
 // '기타' 류는 항상 회색으로 고정해, 색이 의미를 갖게 한다
@@ -45,9 +52,130 @@ interface DonutPart {
   tip: string;
 }
 
-function donutSVG(parts: DonutPart[], centerValue: string, centerLabel: string): string {
+function donutSVG(parts: DonutPart[], centerValue: string, centerLabel: string, callouts = false): string {
   const total = parts.reduce((a, p) => a + p.value, 0);
   if (total <= 0) return '';
+
+  if (callouts) {
+    // 링 중심(cx,cy)은 정중앙 고정. 가로 폭은 동적값을 HW_MIN으로 바닥 고정해 두 도넛 크기를 통일,
+    // 세로는 라벨 양에 맞춰 동적. 라벨은 퍼센트(위)+이름(아래, 길면 줄바꿈)을 가운데 정렬한다.
+    const cx = 345, cy = 205, R = 180, sw = 64;
+    const lf = 19; // 라벨 글자 크기(viewBox 단위) — 작게 보여서 키움
+    const C = 2 * Math.PI * R;
+    const HW_MIN = 360; // viewBox 가로 반폭 바닥값 → 라벨이 짧아도 이 폭 유지(두 도넛 동일 크기)
+    // 한글 1em, 숫자·영문 ~0.56em 등 대략 폭으로 라벨 길이를 추정해 배치한다.
+    const textW = (s: string): number =>
+      [...s].reduce((a, ch) => {
+        if (/[가-힣]/.test(ch)) return a + 1.0;
+        if (ch === '·' || ch === 'ㆍ') return a + 0.5;
+        if (ch === '%') return a + 0.85;
+        if (ch === ' ') return a + 0.3;
+        if (ch === '(' || ch === ')') return a + 0.4;
+        return a + 0.56;
+      }, 0) * lf;
+    // 이름이 WRAP_W를 넘으면 두 줄로(공백·가운뎃점 후보 중 두 줄 폭이 가장 균형 잡히는 곳에서 자름).
+    const WRAP_W = lf * 5.5;
+    const wrapName = (s: string): string[] => {
+      if (textW(s) <= WRAP_W) return [s];
+      const breaks: number[] = [];
+      for (let i = 1; i < s.length; i++) {
+        const ch = s[i - 1];
+        if (ch === ' ' || ch === '·' || ch === 'ㆍ') breaks.push(i);
+      }
+      if (!breaks.length) breaks.push(Math.ceil(s.length / 2));
+      let best = breaks[0], bestMax = Infinity;
+      for (const b of breaks) {
+        const m = Math.max(textW(s.slice(0, b).replace(/\s+$/, '')), textW(s.slice(b).replace(/^\s+/, '')));
+        if (m < bestMax) { bestMax = m; best = b; }
+      }
+      return [s.slice(0, best).replace(/\s+$/, ''), s.slice(best).replace(/^\s+/, '')];
+    };
+
+    let acc = 0;
+    const segs: string[] = [];
+    const lineH = lf * 1.18; // 줄 간격
+    // 라벨을 먼저 수집(세로 겹침 해소를 위해) → SVG로 변환한다.
+    type Lab = { side: 1 | -1; x1: number; y1: number; x2: number; y2: number;
+      ex: number; lines: string[]; w: number; color: string; bc: number; half: number };
+    const labs: Lab[] = [];
+
+    parts.forEach((p) => {
+      const startFrac = acc / total;
+      acc += p.value;
+      const endFrac = acc / total;
+      const len = (p.value / total) * C;
+      if (len >= 0.8) {
+        segs.push(`<circle r="${R}" cx="${cx}" cy="${cy}" fill="none" stroke="${p.color}" stroke-width="${sw}"
+          stroke-dasharray="${Math.max(0.5, len - 1.6).toFixed(2)} ${C.toFixed(2)}"
+          stroke-dashoffset="${(-(startFrac) * C).toFixed(2)}"><title>${esc(p.tip)}</title></circle>`);
+      }
+      const pct = Math.round((p.value / total) * 100);
+      if (pct < 3) return;
+      const midFrac = (startFrac + endFrac) / 2;
+      const angle = midFrac * 2 * Math.PI - Math.PI / 2;
+      const r1 = R + sw / 2 + 4;
+      const r2 = R + sw / 2 + 60; // 리더선을 여백 쪽으로 더 길게 — 라벨을 링에서 띄워 좌우 여백에 적는다
+      const x1 = cx + r1 * Math.cos(angle);
+      const y1 = cy + r1 * Math.sin(angle);
+      const x2 = cx + r2 * Math.cos(angle);
+      const y2 = cy + r2 * Math.sin(angle);
+      const side: 1 | -1 = x2 >= cx ? 1 : -1;
+      // 줄 구성: 퍼센트(맨 위) + 이름(1~2줄). 가운데 정렬이라 폭은 가장 넓은 줄.
+      const lines = [`${pct}%`, ...wrapName(p.name)];
+      labs.push({
+        side, x1, y1, x2, y2,
+        ex: x2 + side * 14,                                 // 블록 안쪽(링 쪽) 가장자리 = 리더선 끝
+        lines, w: Math.max(...lines.map(textW)), color: p.color,
+        bc: y2,                                             // 블록 세로 중심(겹침 해소 전 초기값)
+        half: ((lines.length - 1) / 2) * lineH + lf * 0.55, // 블록 반높이(줄 수에 비례)
+      });
+    });
+
+    // 같은 쪽 라벨이 세로로 겹치지 않게 위→아래로 최소 간격 확보(줄 수마다 키가 달라 블록별 반높이 사용).
+    for (const s of [1, -1] as const) {
+      const col = labs.filter((l) => l.side === s).sort((a, b) => a.bc - b.bc);
+      for (let i = 1; i < col.length; i++) {
+        const need = col[i - 1].half + col[i].half + 5;
+        if (col[i].bc - col[i - 1].bc < need) col[i].bc = col[i - 1].bc + need;
+      }
+    }
+
+    // 라벨 → SVG. 가로 경계(HW_MIN으로 바닥 고정)와 세로 경계를 함께 넓힌다.
+    const labels: string[] = [];
+    let minX = cx - (R + sw / 2), maxX = cx + (R + sw / 2);
+    let minY = cy - (R + sw / 2), maxY = cy + (R + sw / 2);
+    for (const l of labs) {
+      const lx = l.ex + (l.side * l.w) / 2;       // 가운데 정렬 기준 x(블록 중심)
+      const far = l.ex + l.side * l.w;            // 블록 바깥쪽 가장자리
+      minX = Math.min(minX, l.ex, far); maxX = Math.max(maxX, l.ex, far);
+      minY = Math.min(minY, l.bc - l.half); maxY = Math.max(maxY, l.bc + l.half);
+      const top = l.bc - ((l.lines.length - 1) / 2) * lineH; // 첫 줄 시각 중심
+      const texts = l.lines
+        .map((t, k) => {
+          const big = k === 0;
+          const y = top + k * lineH + lf * 0.35;
+          return `<text x="${lx.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" font-size="${big ? lf + 1 : lf}" font-weight="${big ? 700 : 500}" fill="var(--ink)">${esc(t)}</text>`;
+        })
+        .join('');
+      labels.push(`
+        <polyline points="${l.x1.toFixed(1)},${l.y1.toFixed(1)} ${l.x2.toFixed(1)},${l.y2.toFixed(1)} ${l.ex.toFixed(1)},${l.bc.toFixed(1)}"
+          fill="none" stroke="${l.color}" stroke-width="1.3" opacity="0.75"/>${texts}`);
+    }
+
+    // 가로는 HW_MIN으로 바닥 고정(두 도넛 통일), 세로는 라벨에 맞춰. 링 중심은 정중앙.
+    const pad = 4;
+    const dx = Math.max(cx - minX, maxX - cx, HW_MIN);
+    const dy = Math.max(cy - minY, maxY - cy);
+    const vbX = cx - dx - pad, vbY = cy - dy - pad;
+    const vbW = 2 * (dx + pad), vbH = 2 * (dy + pad);
+    return `<svg viewBox="${vbX.toFixed(1)} ${vbY.toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}" role="img">
+      <g transform="rotate(-90 ${cx} ${cy})">${segs.join('')}</g>
+      <text x="${cx}" y="${cy + 8}" text-anchor="middle" font-size="54" font-weight="700" fill="var(--ink)">${esc(centerValue)}</text>
+      <text x="${cx}" y="${cy + 32}" text-anchor="middle" font-size="20" fill="var(--muted)">${esc(centerLabel)}</text>
+      ${labels.join('')}
+    </svg>`;
+  }
+
   const R = 56;
   const C = 2 * Math.PI * R;
   let acc = 0;
@@ -56,7 +184,7 @@ function donutSVG(parts: DonutPart[], centerValue: string, centerLabel: string):
       const off = acc / total;
       acc += p.value;
       const len = (p.value / total) * C;
-      if (len < 0.8) return ''; // 너무 얇은 조각은 그리지 않는다 (목록에는 남음)
+      if (len < 0.8) return '';
       return `<circle r="${R}" cx="80" cy="80" fill="none" stroke="${p.color}" stroke-width="18"
         stroke-dasharray="${Math.max(0.5, len - 1.6).toFixed(2)} ${C.toFixed(2)}"
         stroke-dashoffset="${(-off * C).toFixed(2)}"><title>${esc(p.tip)}</title></circle>`;
@@ -141,39 +269,6 @@ function dailyChartSVG(daily: { date: string; tokens: number }[]): string {
   </svg>`;
 }
 
-// 도구를 성격별로 묶어 색을 입힌다. 이름만으로는 뭐 하는 도구인지 안 보여서.
-const TOOL_GROUPS: { label: string; color: string; re: RegExp }[] = [
-  { label: '읽기·탐색', color: '#2ea35c', re: /^(Read|Grep|Glob|LS|NotebookRead|WebFetch|WebSearch)$/ },
-  { label: '파일 수정', color: '#4a78d0', re: /^(Edit|Write|NotebookEdit)$/ },
-  { label: '터미널', color: '#e0902a', re: /^Bash$/ },
-  { label: '작업·대화', color: '#8268d8', re: /^(Task\w*|TodoWrite|AskUserQuestion|Skill|Agent|ToolSearch|ExitPlanMode|EnterPlanMode)$/ },
-  { label: 'MCP 연동', color: '#26b3a8', re: /^mcp__/ },
-];
-const TOOL_OTHER = { label: '기타', color: GRAY };
-
-function toolGroup(name: string): { label: string; color: string } {
-  for (const g of TOOL_GROUPS) if (g.re.test(name)) return g;
-  return TOOL_OTHER;
-}
-
-function groupColor(label: string): string {
-  return TOOL_GROUPS.find((g) => g.label === label)?.color ?? TOOL_OTHER.color;
-}
-
-// 구버전 스냅샷(toolGroups 없음)용: 상위 도구만으로 성격별 비중을 근사한다
-function groupsFromTop(tools: { name: string; n: number }[]): { label: string; n: number; pct: number }[] {
-  const m = new Map<string, number>();
-  let total = 0;
-  for (const t of tools) {
-    total += t.n;
-    const label = toolGroup(t.name).label;
-    m.set(label, (m.get(label) ?? 0) + t.n);
-  }
-  return [...m.entries()]
-    .map(([label, n]) => ({ label, n, pct: total > 0 ? Math.round((n / total) * 100) : 0 }))
-    .sort((a, b) => b.n - a.n);
-}
-
 function shortModel(m: string): string {
   const full = m.match(/^claude-([a-z]+)-(\d+)-(\d+)/);
   if (full) return `${full[1]} ${full[2]}.${full[3]}`;
@@ -191,18 +286,22 @@ window.api.onProgress((p) => {
 async function analyze(): Promise<void> {
   if (running) return;
   running = true;
-  const btn = $('btn-analyze') as HTMLButtonElement;
-  btn.disabled = true;
-  btn.textContent = '분석 중…';
   $('report').classList.add('hidden');
   $('onboarding').classList.add('hidden');
   $('home').classList.add('hidden');
   $('progress').classList.remove('hidden');
+  $('subtitle').classList.remove('hidden');
   $('subtitle').textContent = '최근 30일 기록을 읽는 중…';
   try {
     const report = await window.api.analyze(30);
+    if ('status' in report) {
+      // MAS 빌드: ~/.claude 접근이 아직 허용 안 됨 → 폴더 허용 받고 자동 재시도
+      $('progress').classList.add('hidden');
+      $('subtitle').textContent = '폴더 접근 허용이 필요해요';
+      openAccessModal();
+      return;
+    }
     $('progress').classList.add('hidden');
-    ($('history-select') as HTMLSelectElement).value = '';
     render(report);
     void loadHistory(); // 방금 저장된 스냅샷이 목록에 보이게
   } catch (e) {
@@ -212,12 +311,11 @@ async function analyze(): Promise<void> {
     $('subtitle').textContent = '분석에 실패했어요';
   } finally {
     running = false;
-    btn.disabled = false;
-    btn.textContent = '다시 분석';
   }
 }
 
 function render(r: UsageReport, snapshotDate?: string): void {
+  modalReport = r;
   if (r.sessions === 0) {
     renderOnboarding(r);
     return;
@@ -225,9 +323,13 @@ function render(r: UsageReport, snapshotDate?: string): void {
   $('onboarding').classList.add('hidden');
   $('home').classList.add('hidden');
   $('doc-actions').classList.remove('hidden');
-  $('subtitle').textContent = snapshotDate
-    ? `${snapshotDate} 저장본 · 세션 ${r.sessions.toLocaleString()}개`
-    : `분석일 ${r.generatedAt.slice(0, 10)} · 최근 ${r.days}일 · 세션 ${r.sessions.toLocaleString()}개`;
+  // 제목 밑에 한 줄 설명(왼쪽이 허전하지 않게), 분석일·세션은 오른쪽에 두 줄로
+  $('subtitle').classList.remove('hidden');
+  $('subtitle').textContent = 'Claude Code 사용 습관 진단';
+  const sessN = r.sessions.toLocaleString();
+  $('report-meta').innerHTML = snapshotDate
+    ? `<span>${snapshotDate} 저장본</span><span>세션 ${sessN}개</span>`
+    : `<span>분석일 ${r.generatedAt.slice(0, 10)}</span><span>세션 ${sessN}개(최근 ${r.days}일)</span>`;
 
   renderLevel(r);
   renderAxes(r);
@@ -239,7 +341,6 @@ function render(r: UsageReport, snapshotDate?: string): void {
   renderActivities(r);
   renderInventory(r);
   renderFeatureCoverage(r);
-  renderRecs($('recs'), r.recommendations, false);
 
   $('meta').textContent =
     `파일 ${r.files}개 · 건너뛴 라인 ${r.skippedLines.toLocaleString()}개 · ` +
@@ -252,6 +353,8 @@ function renderOnboarding(r: UsageReport): void {
   $('report').classList.add('hidden');
   $('home').classList.add('hidden');
   $('doc-actions').classList.remove('hidden');
+  $('report-meta').textContent = '';
+  $('subtitle').classList.remove('hidden');
   $('subtitle').textContent = '분석할 기록이 없어요';
   const steps = $('onboarding-steps');
   const hasBinary = !!r.env.claudeBinary;
@@ -267,7 +370,21 @@ function renderOnboarding(r: UsageReport): void {
 }
 
 function renderLevel(r: UsageReport): void {
-  const avg = r.scores.reduce((a, s) => a + s.score, 0) / Math.max(1, r.scores.length);
+  const avg = Math.round(r.scores.reduce((a, s) => a + s.score, 0) / Math.max(1, r.scores.length));
+  const rank = r.rank;
+
+  // 리포트(종합판정)는 등수 + 상위%만 (엠블럼·티어명은 랭킹 화면 전용 → 분석 리포트의 오피셜 톤 유지)
+  if (rank && rank.percentile != null) {
+    const myRank = Math.max(1, rank.total - rank.below);
+    const topPct = Math.max(0, (1 - rank.percentile) * 100);
+    const topTxt = topPct < 0.1 ? '0' : topPct < 1 ? topPct.toFixed(1) : String(Math.round(topPct));
+    $('level').innerHTML =
+      `${rank.total.toLocaleString()}명 중 ${myRank.toLocaleString()}위 · 상위 ${topTxt}% ` +
+      `<span class="lv-desc">· 평균 ${avg}점</span>`;
+    return;
+  }
+
+  // 순위를 못 받았을 때(오프라인 등)만 절대평가 Lv. 로 폴백
   let lv = 'Lv.1 입문';
   let desc = 'AI와 첫 합 맞추는 중';
   if (avg >= 80) {
@@ -283,29 +400,67 @@ function renderLevel(r: UsageReport): void {
     lv = 'Lv.2 적응';
     desc = '기본기를 다지는 중';
   }
-  $('level').innerHTML = `${esc(lv)} <span class="lv-desc">${esc(desc)} · 평균 ${Math.round(avg)}점</span>`;
+  $('level').innerHTML = `${esc(lv)} <span class="lv-desc">${esc(desc)} · 평균 ${avg}점</span>`;
+}
+
+// 티어 엠블럼: 9분할 PNG (emblems/<key>.png). 9장 모두 동일 캔버스·방패 바닥정렬, 챌린저만 왕관이 위로.
+function emblemImg(key: string, cls = 'emblem'): string {
+  return `<img class="${cls}" src="emblems/${esc(key)}.png" alt="" draggable="false" />`;
 }
 
 function renderAxes(r: UsageReport): void {
   $('radar').innerHTML = radarSVG(r.scores);
-  // desc는 항상 보이고, 실제 수치(detail)는 번잡해서 기본 접어둔다 → 클릭하면 펼침 (구버전 스냅샷엔 detail 없음)
+  // 점수는 왼쪽, 오른쪽엔 '세부 보기' 버튼 → 누르면 실제 수치를 팝업으로 (인라인으로 펼치면 아래 내용이 밀려서)
+  // 구버전 스냅샷엔 metrics/detail이 없어 버튼 대신 빈 칸을 둬 그리드 정렬만 맞춘다. data-idx로 modalReport에서 조회
   $('axes').innerHTML = r.scores
-    .map((s) => {
-      const hasDetail = !!s.detail;
-      const toggle = hasDetail ? ' <span class="axis-toggle">수치 <span class="arrow">▾</span></span>' : '';
-      const sub = s.desc || hasDetail ? `<div class="axis-sub">${esc(s.desc ?? '')}${toggle}</div>` : '';
+    .map((s, i) => {
+      const hasDetail = (s.metrics && s.metrics.length) || s.detail;
+      const btn = hasDetail
+        ? `<button class="axis-detail-btn" data-idx="${i}">상세 보기 <span class="arrow">›</span></button>`
+        : '<span class="axis-detail-spacer"></span>';
       return `
-    <div class="axis-item${hasDetail ? ' has-detail' : ''}">
+    <div class="axis-item">
       <div class="axis-row">
         <span class="name">${esc(s.axis)}</span>
         <div class="track"><div class="fill" style="width:${s.score}%"></div></div>
         <span class="val">${s.score}점</span>
+        ${btn}
       </div>
-      ${sub}
-      ${hasDetail ? `<div class="axis-detail">${esc(s.detail!)}</div>` : ''}
+      ${s.desc ? `<div class="axis-sub">${esc(s.desc)}</div>` : ''}
     </div>`;
     })
     .join('');
+}
+
+// 한 축의 세부 수치 팝업: 라벨(왼쪽, 채점 힌트 포함) + 값(오른쪽 정렬). 구버전 스냅샷은 detail 문자열로 폴백
+function openAxisModal(idx: number): void {
+  const s = modalReport?.scores[idx];
+  if (!s) return;
+  $('axis-modal-title').textContent = s.axis;
+  const rows =
+    s.metrics && s.metrics.length
+      ? s.metrics
+          .map(
+            (m) =>
+              `<li><div class="amx-l"><span class="amx-label">${esc(m.label)}</span>${m.hint ? `<span class="amx-hint">${esc(m.hint)}</span>` : ''}</div><span class="amx-val">${esc(m.value)}</span></li>`
+          )
+          .join('')
+      : (s.detail ?? '')
+          .split(' · ')
+          .filter(Boolean)
+          .map((seg) => `<li><div class="amx-l"><span class="amx-label">${esc(seg)}</span></div></li>`)
+          .join('');
+  const criteriaHint = !$('btn-criteria').classList.contains('hidden')
+    ? '<p class="footnote">점수가 어떻게 계산되는지는 <b>1. 종합 판정</b> 옆 <b>!</b> 버튼에서 볼 수 있어요.</p>'
+    : '';
+  $('axis-modal-body').innerHTML = `
+    <div class="axis-modal-top">
+      <span class="axis-modal-score">${s.score}<span class="axis-modal-unit">점</span></span>
+      ${s.desc ? `<p class="axis-modal-desc">${esc(s.desc)}</p>` : ''}
+    </div>
+    <ul class="axis-modal-list">${rows}</ul>
+    ${criteriaHint}`;
+  $('axis-modal').classList.remove('hidden');
 }
 
 // 점수 기준 팝업: 리포트에 실린 그 시점의 기준을 그대로 보여준다 (구버전 스냅샷에는 없어 버튼을 숨긴다)
@@ -317,29 +472,38 @@ function renderCriteria(r: UsageReport): void {
     return;
   }
   btn.classList.remove('hidden');
+  // 가점(+)은 왼쪽, 감점(−)은 오른쪽 2열로. 근거는 설명 없이 출처 링크만(리다이렉트)
+  const col = (items: string[]): string =>
+    items.length
+      ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+      : '<p class="crit-col-empty">없음</p>';
   $('criteria-body').innerHTML = crits
-    .map(
-      (c) => `
-    <div class="crit">
-      <p class="crit-axis">${esc(c.axis)}<span class="crit-what">${esc(c.what)}</span></p>
-      <p class="crit-base">${esc(c.base)}</p>
-      <ul>
-        ${c.gains.map((g) => `<li class="crit-gain">+ ${esc(g)}</li>`).join('')}
-        ${c.penalties.map((p) => `<li class="crit-pen">− ${esc(p)}</li>`).join('')}
-      </ul>
-      ${
+    .map((c) => {
+      const src =
         c.sources && c.sources.length
-          ? `<div class="crit-src"><span class="crit-src-h">근거</span><ul>${c.sources
+          ? `<p class="crit-src"><span class="crit-src-h">근거</span>${c.sources
               .map(
                 (s) =>
-                  `<li><a class="crit-src-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.label)}</a><span class="crit-src-g">${esc(s.grounds)}</span></li>`
+                  `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.label)}</a>`
               )
-              .join('')}</ul></div>`
-          : ''
-      }
-      ${c.calibrationNote ? `<p class="crit-cal">${esc(c.calibrationNote)}</p>` : ''}
-    </div>`
-    )
+              .join('<span class="crit-src-sep">·</span>')}</p>`
+          : '';
+      return `
+    <div class="crit">
+      <p class="crit-axis">${esc(c.axis)}<span class="crit-what">${esc(c.what)}</span></p>
+      <div class="crit-cols">
+        <div class="crit-col crit-col-gain">
+          <span class="crit-col-h crit-col-h-gain">+ 올려주는 것</span>
+          ${col(c.gains)}
+        </div>
+        <div class="crit-col crit-col-pen">
+          <span class="crit-col-h crit-col-h-pen">− 내리는 것</span>
+          ${col(c.penalties)}
+        </div>
+      </div>
+      ${src}
+    </div>`;
+    })
     .join('');
 }
 
@@ -408,7 +572,8 @@ function renderCategories(r: UsageReport): void {
       tip: `${c.name} ${c.pct}% (${c.sessions}회)`,
     })),
     String(r.sessions),
-    '세션'
+    '세션',
+    true
   );
   $('categories').innerHTML = r.categories
     .map(
@@ -417,7 +582,7 @@ function renderCategories(r: UsageReport): void {
       <div class="leg-head">
         <span class="dot" style="background:${colorFor(c.name, i)}"></span>
         <span class="leg-name">${esc(c.name)}</span>
-        <span class="leg-val">${c.pct}% · ${c.sessions}회</span>
+        <span class="leg-val">${c.pct}%(${c.sessions}회)</span>
       </div>
     </div>`
     )
@@ -433,16 +598,25 @@ function renderCategories(r: UsageReport): void {
       pt
         .map((t) => {
           const subs = t.projects ?? [];
-          const shown = subs.map((p) => `${esc(p.name)} ${p.sessions}`).join(' · ');
           const rest = t.sessions - subs.reduce((a, p) => a + p.sessions, 0);
-          const sub = shown ? `<p class="ptype-sub">${shown}${rest > 0 ? ` · 그 외 ${rest}` : ''}</p>` : '';
+          const lis = subs
+            .map(
+              (p) =>
+                `<li><span class="pp-name">${esc(p.name)}</span><span class="pp-val">${p.sessions}번</span></li>`
+            )
+            .join('');
+          const restLi =
+            rest > 0
+              ? `<li class="pp-rest"><span class="pp-name">그 외</span><span class="pp-val">${rest}번</span></li>`
+              : '';
+          const projects = subs.length ? `<ul class="ptype-projects">${lis}${restLi}</ul>` : '';
           return `
-      <div class="ptype-item">
+      <div class="ptype-item${subs.length ? ' has-projects' : ''}">
         <div class="ptype-row">
           <span class="ptype-name">${esc(t.label)}</span>
-          <span class="ptype-val">${t.pct}% · ${t.sessions}회</span>
+          <span class="ptype-val">${t.sessions}회(${t.pct}%)${subs.length ? ` <span class="ptype-toggle">상세 보기 <span class="arrow">▾</span></span>` : ''}</span>
         </div>
-        ${sub}
+        ${projects}
       </div>`;
         })
         .join('');
@@ -451,29 +625,25 @@ function renderCategories(r: UsageReport): void {
   }
 }
 
-// 각 활동이 실제로 무엇을 뜻하는지 한 줄 설명 (분류 규칙과 1:1)
 const ACT_DESC: Record<string, string> = {
-  '대화·설계': '파일·도구 없이 말로만 답한 턴. 질문 답변, 설계 논의',
-  '명령 실행': '터미널 명령을 돌린 턴. 빌드·테스트·git·파일 탐색',
-  '코드 읽기·검수': '파일을 읽고 검색만 한 턴. 수정 없음',
-  '서버·스크립트 코드': '로직·서버 코드 파일을 고친 턴',
-  '프론트 코드': '화면 쪽 파일을 고친 턴',
-  '문서·설정 파일': '문서·설정 파일을 고친 턴',
-  '컴퓨터·브라우저 제어': '화면을 직접 클릭·조작한 턴',
-  '기타 도구': '그 외 도구를 쓴 턴. 스킬·서브에이전트 등',
+  '대화·설계': '도구 없이 텍스트로만 응답',
+  '명령 실행': '셸 명령 실행',
+  '코드 읽기·검수': '읽기·검색만, 수정 없음',
+  '서버·스크립트 코드': '백엔드·로직 파일 수정',
+  '프론트 코드': 'UI·화면 파일 수정',
+  '문서·설정 파일': '문서·설정 파일 수정',
+  '컴퓨터·브라우저 제어': '마우스·키보드로 직접 제어',
+  '기타 도구': '스킬·에이전트 등',
 };
 
 // 구버전 저장본에는 activities/inventory가 없을 수 있어 블록 단위로 숨긴다
 function renderActivities(r: UsageReport): void {
   const actBlock = $('activities-block');
-  const toolsBlock = $('tools-block');
   if (!r.activities || r.activities.length === 0) {
     actBlock.classList.add('hidden');
-    toolsBlock.classList.add('hidden');
     return;
   }
   actBlock.classList.remove('hidden');
-  toolsBlock.classList.remove('hidden');
   const actTotal = r.activities.reduce((a, x) => a + x.total, 0);
   $('act-donut').innerHTML = donutSVG(
     r.activities.map((a, i) => ({
@@ -483,65 +653,24 @@ function renderActivities(r: UsageReport): void {
       tip: `${a.name} ${a.pct}% (${fmtTokens(a.total)} 토큰)`,
     })),
     fmtTokens(actTotal),
-    '토큰'
+    '토큰',
+    true
   );
   $('activities').innerHTML = r.activities
     .map((a, i) => {
       const desc = ACT_DESC[a.name] ?? '';
-      // 실제 내용물 상위 항목: 명령 실행이면 명령어, 파일 작업이면 확장자
-      const keys = Object.keys(a.details ?? {}).slice(0, 3);
-      const items = keys.length
-        ? '주로 ' + keys.map((k) => (a.name === '명령 실행' ? k : '.' + k)).join('·')
-        : '';
-      const sub = desc || items ? `<p class="leg-sub">${esc(desc)}${desc && items ? ' · ' : ''}${esc(items)}</p>` : '';
+      const sub = desc ? `<p class="leg-sub">${esc(desc)}</p>` : '';
       return `
     <div class="leg-row" title="메시지 ${a.msgs.toLocaleString()}개 · 출력 토큰 ${fmtTokens(a.output)}">
       <div class="leg-head">
         <span class="dot" style="background:${colorFor(a.name, i)}"></span>
         <span class="leg-name">${esc(a.name)}</span>
-        <span class="leg-val">${a.pct}% · ${fmtTokens(a.total)}</span>
+        <span class="leg-val">${a.pct}%(${fmtTokens(a.total)})</span>
       </div>
       ${sub}
     </div>`;
     })
     .join('');
-  const tools = r.toolTop ?? [];
-
-  // 성격별 비중 요약 (전체 호출 기준). 신버전은 r.toolGroups, 구버전 스냅샷은 상위 도구로 폴백 집계
-  const groups = r.toolGroups?.length ? r.toolGroups : groupsFromTop(tools);
-  // 그래프 대신 한 줄 텍스트: 색점 + 라벨 + % (정확한 호출 수는 hover)
-  const gLine = groups
-    .map(
-      (g) =>
-        `<span class="tg-item" title="${esc(g.label)} ${g.n.toLocaleString()}회"><span class="tg-dot" style="background:${groupColor(g.label)}"></span>${esc(g.label)} <b>${g.pct}%</b></span>`
-    )
-    .join('<span class="tg-sep">·</span>');
-  $('tool-groups').innerHTML = `<p class="tool-mix">${gLine}</p>`;
-
-  const maxN = Math.max(1, ...tools.map((t) => t.n));
-  $('tool-top').innerHTML = tools
-    .map((t) => {
-      const g = toolGroup(t.name);
-      // sqrt 스케일: 1등(Bash)이 압도해도 꼬리가 보이게
-      const w = Math.sqrt(t.n / maxN) * 100;
-      return `
-    <div class="tool-row2" title="${esc(t.name)} · ${esc(g.label)}">
-      <code class="t-name">${esc(shortTool(t.name))}</code>
-      <div class="t-track"><div class="t-fill" style="width:${w.toFixed(1)}%;background:${g.color}"></div></div>
-      <span class="t-num">${t.n.toLocaleString()}</span>
-    </div>`;
-    })
-    .join('');
-  const seen = new Set(tools.map((t) => toolGroup(t.name).label));
-  $('tool-legend').innerHTML = [...TOOL_GROUPS, TOOL_OTHER]
-    .filter((g) => seen.has(g.label))
-    .map((g) => `<span class="leg-item"><span class="dot" style="background:${g.color}"></span>${esc(g.label)}</span>`)
-    .join('');
-}
-
-function shortTool(n: string): string {
-  const m = n.match(/^mcp__(.+?)__(.+)$/);
-  return m ? `${m[1]}:${m[2]}` : n;
 }
 
 function renderInventory(r: UsageReport): void {
@@ -553,6 +682,16 @@ function renderInventory(r: UsageReport): void {
   card.classList.remove('hidden');
   const inv = r.inventory;
   const kb = (b: number): string => (b >= 1024 ? (b / 1024).toFixed(1) + 'KB' : b + 'B');
+  // 리스트가 길면 5개만 보이고 나머지는 '⋯ N개 더'로 접는다(클릭하면 펼침)
+  const capped = (rows: string[], cap = 5): string => {
+    if (rows.length <= cap) return rows.join('');
+    const n = rows.length - cap;
+    return (
+      rows.slice(0, cap).join('') +
+      `<div class="inv-extra hidden">${rows.slice(cap).join('')}</div>` +
+      `<button class="inv-more" type="button"><span class="more-show">⋯ ${n}개 더</span><span class="more-hide">접기</span> <span class="arrow">▾</span></button>`
+    );
+  };
 
   // CLAUDE.md: 바탕화면·홈에서 훑어 '있는 곳'만 보여준다. 상위 폴더 상속분(woowa_course 등)은 출처를 덧붙인다.
   const mdScanned = [
@@ -564,29 +703,33 @@ function renderInventory(r: UsageReport): void {
       note: p.has && p.foundAt && p.foundAt !== p.cwd ? `${p.foundAt.split('/').filter(Boolean).pop() ?? ''}/ 상속` : '',
     })),
   ];
-  const mdShown = mdScanned.filter((m) => m.has);
-  $('inv-claudemd').innerHTML =
-    `<p class="inv-sum">${mdShown.length}/${mdScanned.length}곳에 있음 <span class="hint">바탕화면·홈 탐색</span></p>` +
-    (mdShown.length
-      ? mdShown
-          .map(
-            (m) => `
-      <div class="inv-row"${m.note ? ` title="${esc(m.note)}"` : ''}>
+  // 있는 곳(파랑)을 위로, 없는 곳은 흐리게 아래로 — '어디 더 두면 좋은지'까지 한 카드에서 보이게
+  const mdHave = mdScanned.filter((m) => m.has);
+  const mdMiss = mdScanned.filter((m) => !m.has);
+  const mdRow = (m: (typeof mdScanned)[number]): string =>
+    m.has
+      ? `<div class="inv-row"${m.note ? ` title="${esc(m.note)}"` : ''}>
         <span class="st on"></span>
         <span class="inv-name">${esc(m.name)}${m.note ? ` <span class="inv-note">${esc(m.note)}</span>` : ''}</span>
         <span class="inv-val ok">${esc(kb(m.bytes))}</span>
       </div>`
-          )
-          .join('')
-      : '<p class="hint">아직 CLAUDE.md가 없어요 — 자주 쓰는 폴더에 두면 매번 설명을 안 해도 돼요</p>');
+      : `<div class="inv-row">
+        <span class="st off"></span>
+        <span class="inv-name dim-name">${esc(m.name)}</span>
+        <span class="inv-val dim">없음</span>
+      </div>`;
+  $('inv-claudemd').innerHTML =
+    `<p class="inv-sum">${mdHave.length}/${mdScanned.length}곳에 있음 <span class="hint">바탕화면·홈 탐색</span></p>` +
+    capped([...mdHave, ...mdMiss].map(mdRow)) +
+    (mdHave.length ? '' : '<p class="hint">자주 쓰는 폴더에 두면 매번 설명을 안 해도 돼요</p>');
 
   // 스킬: 호출 횟수를 미니 막대로
   const usedSkills = inv.skills.filter((s) => s.uses > 0).length;
   const maxUses = Math.max(1, ...inv.skills.map((s) => s.uses));
   $('inv-skills').innerHTML = inv.skills.length
     ? `<p class="inv-sum">${inv.skills.length}개 중 ${usedSkills}개 호출됨</p>` +
-      inv.skills
-        .map((s) => {
+      capped(
+        inv.skills.map((s) => {
           const w = s.uses > 0 ? Math.max(6, Math.sqrt(s.uses / maxUses) * 100) : 0;
           return `
       <div class="inv-row" title="${esc(s.description)}">
@@ -595,7 +738,7 @@ function renderInventory(r: UsageReport): void {
         <span class="inv-val ${s.uses === 0 ? 'dim' : ''}">${s.uses}회</span>
       </div>`;
         })
-        .join('')
+      )
     : '<p class="hint">~/.claude/skills에 스킬이 없어요</p>';
 
   // 훅: 이벤트 배지 + 스크립트 칩
@@ -622,51 +765,30 @@ function renderFeatureCoverage(r: UsageReport): void {
     return;
   }
   el.classList.remove('hidden');
-  const used = fc.filter((f) => f.used).length;
-  el.innerHTML =
-    `<div class="fc-head"><span class="fc-title">공식 기능 ${used}/${fc.length} 사용</span><span class="hint">기능 활용도 점수의 기준 · 안 쓰는 기능을 켜면 점수가 올라요</span></div>` +
-    `<div class="fc-chips">` +
-    fc
-      .map((f) => `<span class="fc-chip ${f.used ? 'on' : 'off'}">${f.used ? '✓' : '＋'} ${esc(f.name)}</span>`)
-      .join('') +
-    `</div>`;
-}
-
-function renderRecs(
-  container: HTMLElement,
-  recs: { title: string; now: string; better: string; script: string; severity?: string }[],
-  isOpus: boolean
-): void {
-  container.innerHTML = recs
-    .map((rec, i) => {
-      const sev = isOpus
-        ? '<span class="sev opus">opus</span>'
-        : `<span class="sev ${rec.severity === 'high' ? 'high' : 'mid'}">${rec.severity === 'high' ? '효과 큼' : '추천'}</span>`;
-      return `
-    <div class="rec">
-      <p class="rec-title">${isOpus ? '소견' : '권고'} ${i + 1} · ${esc(rec.title)}${sev}</p>
-      <p class="line"><strong>현재</strong>${esc(rec.now)}</p>
-      <p class="line"><strong>권고</strong>${esc(rec.better)}</p>
-      <div class="script-row">
-        <code title="${esc(rec.script)}">${esc(rec.script)}</code>
-        <button data-copy="${esc(rec.script)}">복사</button>
-      </div>
-    </div>`;
-    })
+  const adoptOf = (f: (typeof fc)[number]): number => f.adopt ?? (f.used ? 1 : 0);
+  // 채택 단계로 묶어 '잘 쓰는 것 ↔ 안 쓰는 것'을 한눈에. 빈 그룹은 숨긴다.
+  const tiers = [
+    { key: 'on', label: '자주 사용', items: fc.filter((f) => adoptOf(f) >= 1) },
+    { key: 'mid', label: '가끔 사용', items: fc.filter((f) => adoptOf(f) > 0 && adoptOf(f) < 1) },
+    { key: 'off', label: '미사용', items: fc.filter((f) => adoptOf(f) <= 0) },
+  ].filter((t) => t.items.length);
+  const chip = (f: (typeof fc)[number], key: string): string =>
+    `<span class="fc-chip ${key}">${esc(f.name)}${f.detail ? ` <span class="fc-n">${esc(f.detail)}</span>` : ''}</span>`;
+  const bar = tiers
+    .map((t) => `<div class="fc-seg ${t.key}" style="flex:${t.items.length}" title="${t.label} ${t.items.length}개"></div>`)
     .join('');
+  const groups = tiers
+    .map(
+      (t) =>
+        `<div class="fc-group"><div class="fc-glabel ${t.key}"><span class="fc-dot"></span>${t.label}<b>${t.items.length}</b></div>` +
+        `<div class="fc-chips">${t.items.map((f) => chip(f, t.key)).join('')}</div></div>`
+    )
+    .join('');
+  el.innerHTML =
+    `<div class="fc-head"><span class="fc-title">공식 기능 활용</span></div>` +
+    `<div class="fc-bar">${bar}</div>` +
+    `<div class="fc-groups">${groups}</div>`;
 }
-
-document.body.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  if (target.tagName === 'BUTTON' && target.dataset.copy) {
-    void window.api.copy(target.dataset.copy);
-    const old = target.textContent;
-    target.textContent = '복사됨';
-    setTimeout(() => {
-      target.textContent = old;
-    }, 1400);
-  }
-});
 
 // ---- 시작 페이지 + 이전 결과(스냅샷) ----
 
@@ -679,7 +801,190 @@ function showHome(): void {
   $('progress').classList.add('hidden');
   $('doc-actions').classList.add('hidden');
   $('home').classList.remove('hidden');
-  $('subtitle').textContent = '시작하려면 분석하기를 눌러주세요';
+  $('subtitle').classList.remove('hidden');
+  $('subtitle').textContent =
+    '시작하려면 분석하기를 눌러주세요. 최근 30일 Claude Code, Codex의 기록을 읽고 진단합니다.';
+}
+
+// 랭킹 리더보드 팝업: 상위 5위 + (5위 밖이면) ⋯ + 내 행. 표 = 엠블럼·등수·평균·이름.
+async function openRankModal(): Promise<void> {
+  const body = $('rank-modal-body');
+  body.innerHTML = '<p class="rank-empty">불러오는 중…</p>';
+  $('rank-modal').classList.remove('hidden');
+  try {
+    const lb = await window.api.leaderboard();
+    if (!lb || lb.total === 0) {
+      body.innerHTML =
+        '<p class="rank-empty">아직 랭킹에 오른 사람이 없어요.<br/><b>클로드 분석하기</b>로 분석하면 순위가 올라가요.</p>';
+      return;
+    }
+    body.innerHTML = leaderboardHTML(lb);
+  } catch {
+    body.innerHTML = '<p class="rank-empty">랭킹을 불러오지 못했어요.<br/>잠시 후 다시 시도해주세요.</p>';
+  }
+}
+
+function leaderboardRowHTML(r: LbRow): string {
+  const emblem = r.tier ? emblemImg(r.tier.key, 'lb-emblem-img') : '';
+  const you = r.isMe ? '<span class="lb-you">나</span>' : '';
+  // 긴 닉네임은 7자에서 …로 줄여 칸 너비를 고정(점수 가운데·레이아웃 유지). 전체 이름은 마우스 오버 툴팁으로.
+  const chars = [...r.name];
+  const nameHtml =
+    chars.length > 7
+      ? `<span title="${esc(r.name)}">${esc(chars.slice(0, 7).join(''))}…</span>`
+      : esc(r.name);
+  // 세부 보기는 내 행에만 — 축별 점수는 내 것만 로컬에 있다(서버 리더보드는 평균만 준다)
+  const action = r.isMe
+    ? '<button class="lb-detail-btn" type="button">상세 보기 <span class="arrow">›</span></button>'
+    : '';
+  return (
+    `<tr class="lb-row${r.isMe ? ' lb-me' : ''}">` +
+    `<td class="lb-c-emblem">${emblem}</td>` +
+    `<td class="lb-c-rnk">${r.rnk}위</td>` +
+    `<td class="lb-c-avg">${r.avg}<span class="lb-unit">점</span></td>` +
+    `<td class="lb-c-name">${nameHtml}${you}</td>` +
+    `<td class="lb-c-action">${action}</td>` +
+    `</tr>`
+  );
+}
+
+function leaderboardHTML(lb: Leaderboard): string {
+  const rows = lb.top.map(leaderboardRowHTML).join('');
+  // 내가 상위 목록 안에 없고 내 행이 있으면 ⋯ 구분선 + 내 행을 맨 아래 덧붙인다
+  const meInTop = lb.top.some((r) => r.isMe);
+  const tail =
+    lb.me && !meInTop ? `<tr class="lb-gap"><td colspan="5">⋯</td></tr>${leaderboardRowHTML(lb.me)}` : '';
+  const cap = lb.me
+    ? `<p class="lb-cap">전체 <b>${lb.total.toLocaleString()}명</b> 중 <b>${lb.me.rnk.toLocaleString()}위</b></p>`
+    : `<p class="lb-cap">전체 <b>${lb.total.toLocaleString()}명</b></p>`;
+  const note = !lb.me ? '<p class="lb-note">분석하면 내 순위도 여기 올라가요.</p>' : '';
+  return `${cap}<table class="lb"><tbody>${rows}${tail}</tbody></table>${note}`;
+}
+
+// 내 축별 점수: 최신 저장본을 쓴다(리더보드 평균과 같은 시점). 없으면 이번 세션 분석본으로 폴백.
+async function loadMyScores(): Promise<{ axis: string; score: number }[] | null> {
+  try {
+    const items = await window.api.history();
+    if (items.length) {
+      const r = await window.api.snapshot(items[0].date);
+      if (r?.scores?.length) return r.scores.map((s) => ({ axis: s.axis, score: s.score }));
+    }
+  } catch {
+    // 저장본 조회 실패는 치명적이지 않다 — modalReport 로 폴백
+  }
+  return modalReport?.scores?.length
+    ? modalReport.scores.map((s) => ({ axis: s.axis, score: s.score }))
+    : null;
+}
+
+// 내 점수 세부 팝업: 평균이 어떤 축 점수들로 이뤄졌는지 간단히 (랭킹 → 세부 보기)
+async function openScoreDetail(): Promise<void> {
+  const body = $('score-detail-body');
+  body.innerHTML = '<p class="rank-empty">불러오는 중…</p>';
+  $('score-detail-modal').classList.remove('hidden');
+  const scores = await loadMyScores();
+  if (!scores || !scores.length) {
+    body.innerHTML =
+      '<p class="rank-empty">아직 점수가 없어요.<br/><b>클로드 분석하기</b>로 분석하면 보여요.</p>';
+    return;
+  }
+  const avg = Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length);
+  const rows = scores
+    .map(
+      (s) => `
+    <li>
+      <span class="sd-axis">${esc(s.axis)}</span>
+      <div class="sd-track"><div class="sd-fill" style="width:${s.score}%"></div></div>
+      <span class="sd-val">${s.score}<span class="sd-unit">점</span></span>
+    </li>`
+    )
+    .join('');
+  body.innerHTML =
+    `<div class="sd-top"><span class="sd-avg">${avg}<span class="sd-avg-unit">점</span></span></div>` +
+    `<ul class="sd-list">${rows}</ul>`;
+}
+
+// 임시 버튼(코덱스): 아직 화면이 없어 헤더에 안내만 띄운다
+function comingSoon(msg: string): void {
+  $('subtitle').textContent = msg;
+}
+
+// ── 닉네임(공개 랭킹 표시명) ───────────────────────────────────────
+let myNick = '';
+let nickFirstRun = false;
+
+// 보고서 우상단 칩에 현재 닉네임을 반영 (없으면 '닉네임 설정' 안내)
+function updateNickChip(): void {
+  const chip = $('nick-chip');
+  chip.textContent = myNick ? myNick : '닉네임 설정';
+  chip.classList.toggle('nick-chip-empty', !myNick);
+}
+
+// 닉네임 입력 팝업. firstRun=true면 첫 실행 안내(건너뛰어도 빈 닉네임으로 확정해 다시 안 묻는다)
+function openNickModal(firstRun: boolean): void {
+  nickFirstRun = firstRun;
+  const input = $('nick-input') as HTMLInputElement;
+  input.value = myNick;
+  $('btn-nick-skip').textContent = firstRun ? '나중에' : '취소';
+  $('nick-modal').classList.remove('hidden');
+  setTimeout(() => input.focus(), 30);
+}
+
+async function saveNick(): Promise<void> {
+  const input = $('nick-input') as HTMLInputElement;
+  myNick = await window.api.setNickname(input.value.trim().slice(0, 24));
+  updateNickChip();
+  $('nick-modal').classList.add('hidden');
+}
+
+// 저장 없이 닫기. 첫 실행이면 현재값(보통 빈 문자열)을 저장해 다음 실행 때 다시 안 묻는다.
+function dismissNick(): void {
+  if (nickFirstRun) void window.api.setNickname(myNick);
+  $('nick-modal').classList.add('hidden');
+}
+
+// 앱 시작 시: 저장된 닉네임을 칩에 반영하고, 한 번도 안 정했으면 첫 실행 팝업을 띄운다
+async function initNickname(): Promise<void> {
+  try {
+    const n = await window.api.getNickname();
+    myNick = n.name;
+    updateNickChip();
+    if (!n.chosen) openNickModal(true);
+  } catch {
+    // 닉네임 조회 실패는 치명적이지 않다
+  }
+}
+
+// ── 폴더 접근(App Store 샌드박스) ─────────────────────────────────
+// MAS 빌드에서만 쓰인다. ~/.claude 접근을 한 번 허용받아 북마크로 저장한다.
+// 허용되면 onGranted(온보딩에서는 닉네임 단계)를, 없으면 바로 분석을 재시도한다.
+let accessAfter: (() => void) | null = null;
+function openAccessModal(onGranted?: () => void): void {
+  accessAfter = onGranted ?? null;
+  $('access-modal').classList.remove('hidden');
+}
+async function chooseClaudeFolder(): Promise<void> {
+  const res = await window.api.chooseClaudeDir();
+  if (!res.ok) return; // 취소하면 모달을 그대로 둬 다시 선택할 수 있게 한다
+  $('access-modal').classList.add('hidden');
+  const after = accessAfter;
+  accessAfter = null;
+  if (after) after();
+  else void analyze();
+}
+
+// 첫 실행: MAS 빌드이고 폴더 미허용이면 폴더 허용을 먼저 받고, 그 다음 닉네임으로 넘어간다.
+async function initOnboarding(): Promise<void> {
+  try {
+    const acc = await window.api.claudeAccess();
+    if (acc.isMas && !acc.hasAccess) {
+      openAccessModal(() => void initNickname());
+      return;
+    }
+  } catch {
+    // 권한 조회 실패 시에도 닉네임 단계는 진행한다
+  }
+  void initNickname();
 }
 
 function renderHomeHistory(items: SnapItem[]): void {
@@ -700,14 +1005,8 @@ function renderHomeHistory(items: SnapItem[]): void {
 }
 
 async function loadHistory(): Promise<void> {
-  const sel = $('history-select') as HTMLSelectElement;
   try {
     const items = await window.api.history();
-    const current = sel.value;
-    sel.innerHTML =
-      '<option value="">이전 결과</option>' +
-      items.map((it) => `<option value="${it.date}">${it.date} · 평균 ${it.avgScore}점</option>`).join('');
-    sel.value = current && items.some((i) => i.date === current) ? current : '';
     renderHomeHistory(items);
   } catch {
     // 목록 실패는 치명적이지 않다
@@ -720,33 +1019,85 @@ async function viewSnapshot(date: string): Promise<void> {
   render(r, date);
 }
 
-$('history-select').addEventListener('change', () => {
-  const sel = $('history-select') as HTMLSelectElement;
-  if (sel.value) void viewSnapshot(sel.value);
-});
-$('btn-analyze').addEventListener('click', () => void analyze());
 $('btn-home-analyze').addEventListener('click', () => void analyze());
+$('btn-home-codex').addEventListener('click', () => comingSoon('Codex 분석은 준비 중이에요'));
+$('btn-home-ranking').addEventListener('click', () => void openRankModal());
 $('app-title').addEventListener('click', () => showHome());
+$('btn-back-home').addEventListener('click', () => showHome());
 // 시작 화면의 이전 결과 카드 클릭 → 그 저장본 열기
 $('home-history').addEventListener('click', (e) => {
   const card = (e.target as HTMLElement).closest('.home-snap') as HTMLElement | null;
   if (card?.dataset.date) void viewSnapshot(card.dataset.date);
 });
-// 축의 실제 수치는 클릭하면 펼쳐진다
+// 축의 '세부 보기' 버튼 → 세부 수치 팝업
 $('axes').addEventListener('click', (e) => {
-  const item = (e.target as HTMLElement).closest('.axis-item.has-detail') as HTMLElement | null;
-  if (item) item.classList.toggle('show-detail');
+  const btn = (e.target as HTMLElement).closest('.axis-detail-btn') as HTMLElement | null;
+  if (btn?.dataset.idx) openAxisModal(Number(btn.dataset.idx));
 });
+// 프로젝트 종류: 항목 클릭 → 하위 프로젝트 목록 펼치기/접기
+$('project-types').addEventListener('click', (e) => {
+  const item = (e.target as HTMLElement).closest('.ptype-item.has-projects') as HTMLElement | null;
+  if (item) item.classList.toggle('show-projects');
+});
+// 설정 자산 카드(CLAUDE.md·스킬): '⋯ N개 더' → 5개 초과분 펼치기/접기
+for (const id of ['inv-claudemd', 'inv-skills']) {
+  $(id).addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.inv-more') as HTMLElement | null;
+    if (!btn) return;
+    const extra = btn.previousElementSibling as HTMLElement | null;
+    if (extra) extra.classList.toggle('hidden');
+    btn.classList.toggle('open');
+  });
+}
 // (작업 의도별 세션은 하위 프로젝트를 펼치지 않는다 — '프로젝트 종류'로 대체)
 $('btn-criteria').addEventListener('click', () => $('criteria-modal').classList.remove('hidden'));
 $('btn-criteria-close').addEventListener('click', () => $('criteria-modal').classList.add('hidden'));
 $('criteria-modal').addEventListener('click', (e) => {
   if (e.target === $('criteria-modal')) $('criteria-modal').classList.add('hidden');
 });
+$('btn-axis-close').addEventListener('click', () => $('axis-modal').classList.add('hidden'));
+$('axis-modal').addEventListener('click', (e) => {
+  if (e.target === $('axis-modal')) $('axis-modal').classList.add('hidden');
+});
+$('btn-rank-close').addEventListener('click', () => $('rank-modal').classList.add('hidden'));
+$('rank-modal').addEventListener('click', (e) => {
+  // 내 행의 '세부 보기' → 축별 점수 팝업 (리더보드는 매번 다시 그려져 위임으로 잡는다)
+  if ((e.target as HTMLElement).closest('.lb-detail-btn')) {
+    void openScoreDetail();
+    return;
+  }
+  if (e.target === $('rank-modal')) $('rank-modal').classList.add('hidden');
+});
+$('btn-score-detail-close').addEventListener('click', () => $('score-detail-modal').classList.add('hidden'));
+$('score-detail-modal').addEventListener('click', (e) => {
+  if (e.target === $('score-detail-modal')) $('score-detail-modal').classList.add('hidden');
+});
+// 닉네임: 보고서 우상단 칩 클릭 → 수정 팝업. 저장 / 나중에 / 닫기 / 배경 클릭.
+$('nick-chip').addEventListener('click', () => openNickModal(false));
+$('btn-nick-save').addEventListener('click', () => void saveNick());
+$('btn-nick-skip').addEventListener('click', () => dismissNick());
+$('btn-nick-close').addEventListener('click', () => dismissNick());
+$('btn-access-choose').addEventListener('click', () => void chooseClaudeFolder());
+$('nick-modal').addEventListener('click', (e) => {
+  if (e.target === $('nick-modal')) dismissNick();
+});
+$('nick-input').addEventListener('keydown', (e) => {
+  if ((e as KeyboardEvent).key === 'Enter') void saveNick();
+});
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') $('criteria-modal').classList.add('hidden');
+  if (e.key !== 'Escape') return;
+  // 세부 팝업이 떠 있으면 그것만 닫는다 (랭킹은 뒤에 그대로 둔다)
+  if (!$('score-detail-modal').classList.contains('hidden')) {
+    $('score-detail-modal').classList.add('hidden');
+    return;
+  }
+  $('criteria-modal').classList.add('hidden');
+  $('axis-modal').classList.add('hidden');
+  $('rank-modal').classList.add('hidden');
+  if (!$('nick-modal').classList.contains('hidden')) dismissNick();
 });
 
 // 앱을 열면 시작 화면을 보여준다 (분석은 사용자가 직접 시작)
 void loadHistory();
+void initOnboarding();
 showHome();

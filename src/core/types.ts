@@ -43,6 +43,11 @@ export interface SessionSummary {
   substantiveDirectives: number; // 지시형 중 80자 이상 — 맥락·제약이 담긴 지시의 근사
   fileRefDirectives: number; // 지시형 중 구체 파일·경로·@ 를 지목 (Best Practices "Reference specific files")
   verifyDirectives: number; // 지시형 중 테스트·빌드·검증 실행을 함께 요청 (Best Practices "verify its work")
+  // 공식 기능 활용 신호 (2026-06-14): 확장 사고·이미지·백그라운드·@ 멘션
+  thinkEscalations: number; // ultrathink 등 '의도적 심화 사고' 요청 수 (늘 켜둔 자동 thinking은 제외)
+  imageInputs: number; // 사용자가 붙여넣은 이미지 블록 수 (tool_result 스크린샷은 제외)
+  backgroundRuns: number; // run_in_background=true 로 띄운 도구 실행 수
+  atMentions: number; // @경로 파일 멘션이 들어간 사람 메시지 수
   // 학습 주도성 신호: 받은 답을 그대로 두지 않는 행동의 횟수
   learning: {
     chain2: number; // 2연속 질문 체인 (꼬리질문 시작)
@@ -84,6 +89,13 @@ export interface AxisCriterion {
   calibrationNote?: string; // 임계값 숫자가 출처가 아닌 자체 앵커임을 밝히는 단서 (구버전 스냅샷에는 없음)
 }
 
+// 세부 수치 팝업의 한 줄: 왼쪽 라벨(무엇을·어떻게 채점) + 오른쪽 값. (구버전 스냅샷에는 없음 → detail 문자열로 폴백)
+export interface ScoreMetric {
+  label: string; // 무엇을 쟀는가 (왼쪽)
+  value: string; // 측정값 (오른쪽 정렬, 예: '28%', '41개')
+  hint?: string; // 어떻게 점수에 반영되는가 (라벨 아래 작은 글씨)
+}
+
 export interface Rec {
   id: string;
   severity: 'high' | 'mid';
@@ -115,6 +127,11 @@ export interface Behavior {
   cliToolUses: number; // gh·aws·gcloud 등 외부 서비스 CLI 사용 수
   initCommands: number; // /init 사용 수
   loopCommands: number; // /loop(반복 실행) 사용 수
+  // 공식 기능 활용 신호 (2026-06-14): 기간 합산
+  thinkEscalations: number; // 의도적 심화 사고(ultrathink 등) 요청 총 수
+  imageInputs: number; // 붙여넣은 이미지 입력 총 수
+  backgroundRuns: number; // 백그라운드 실행 총 수
+  atMentions: number; // @ 파일 멘션이 든 사람 메시지 총 수
   cheaperModelShare: number; // 전체 토큰 중 저렴 모델(Haiku) 비중 — 싼 작업 위임
   // 학습 주도성 신호, 사람 메시지 100개당 횟수로 정규화
   learningSignals: {
@@ -134,6 +151,44 @@ export interface Inventory {
   skills: { name: string; description: string; uses: number }[];
   hooks: { event: string; matcher: string; command: string }[];
   customCommands?: number; // ~/.claude/commands 의 커스텀 슬래시 커맨드 수 (구버전 스냅샷엔 없음)
+}
+
+// 익명 랭킹 RPC(submit_and_rank/get_rank) 응답
+export interface RankResult {
+  total: number; // 전체 표본 수
+  below: number; // 내 아래 순위 인원(동점은 내 위로 치지 않음 → 동점이면 내가 그 그룹 1위)
+  percentile: number | null; // 0~1, 나 포함 "나 이하" 비율(동점은 높은 쪽). null = 표본 0
+}
+
+// 클라(renderer)에 내려가는 순위 뷰: 서버 응답 + main 에서 계산한 티어/상위%.
+// renderer 는 번들러 없이 전역 스크립트라 tier.ts 를 못 쓰므로 여기서 미리 채워 보낸다.
+export interface RankView extends RankResult {
+  tier?: { key: string; name: string; color: string }; // main 이 percentile 로 항상 채워 보냄(표본 적어도)
+  topPct?: number; // 내 상위 % (반올림 전 원값)
+}
+
+// 리더보드 한 행: 등수 + 닉네임 + 평균점수 (+ 행별 티어 매핑용 percentile, 내 행 여부)
+export interface LeaderboardRow {
+  rnk: number;
+  name: string;
+  avg: number;
+  percentile: number; // 0~1 (cume_dist). main 이 이 값으로 행별 티어를 계산한다
+  isMe?: boolean;
+}
+// 서버 리더보드 RPC 응답: 상위 N + 내 행(없으면 null)
+export interface LeaderboardResult {
+  total: number;
+  top: LeaderboardRow[];
+  me: LeaderboardRow | null;
+}
+// renderer 에 내려가는 뷰: 각 행에 main 이 계산한 티어(엠블럼 키)를 붙인다
+export interface LeaderboardRowView extends LeaderboardRow {
+  tier?: { key: string; name: string; color: string };
+}
+export interface LeaderboardView {
+  total: number;
+  top: LeaderboardRowView[];
+  me: LeaderboardRowView | null;
 }
 
 export interface Report {
@@ -160,14 +215,16 @@ export interface Report {
   toolGroups?: { label: string; n: number; pct: number }[];
   inventory: Inventory;
   // 공식 Claude Code 기능 중 기간 내 사용 여부 (구버전 스냅샷에는 없음)
-  featureCoverage?: { name: string; used: boolean }[];
+  featureCoverage?: { name: string; used: boolean; weight?: number; adopt?: number; detail?: string }[];
   behavior: Behavior;
-  // desc/detail: 축이 뭘 재는지 한 줄 + 이번 측정의 실제 입력값 (구버전 스냅샷에는 없음)
-  scores: { axis: string; score: number; desc?: string; detail?: string }[];
+  // desc: 축이 뭘 재는지 한 줄. metrics: 세부 수치(라벨+값+힌트). detail: 구버전 스냅샷의 한 줄 문자열(폴백용)
+  scores: { axis: string; score: number; desc?: string; detail?: string; metrics?: ScoreMetric[] }[];
   // 점수 기준 팝업 내용. 스냅샷에 같이 저장돼 그 시점의 기준이 남는다 (구버전 스냅샷에는 없음)
   scoreCriteria?: AxisCriterion[];
   recommendations: Rec[];
   samples: { project: string; category: string; prompt: string }[];
+  // 익명 랭킹 결과 (동의하고 전송한 경우만 채워짐)
+  rank?: RankView;
   env: { claudeBinary: string | null; projectsDirs: string[] };
 }
 

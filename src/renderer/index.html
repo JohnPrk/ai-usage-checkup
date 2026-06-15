@@ -3,40 +3,37 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
-  <title>AI 분석 리포트</title>
+  <title>AI 리포트</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="sheet">
     <header class="doc-head">
-      <div>
-        <h1 id="app-title" title="시작 화면으로">AI 분석 리포트</h1>
+      <div class="doc-title">
+        <h1 id="app-title" title="시작 화면으로">AI 리포트</h1>
         <p id="subtitle">불러오는 중…</p>
       </div>
       <div class="doc-actions hidden" id="doc-actions">
-        <select id="history-select">
-          <option value="">이전 결과</option>
-        </select>
-        <button id="btn-analyze" class="primary">다시 분석</button>
+        <p id="report-meta" class="report-meta"></p>
+        <button id="nick-chip" class="nick-chip" title="닉네임 수정"></button>
       </div>
     </header>
 
     <section id="home" class="hidden">
       <div class="home-hero">
-        <p class="home-eyebrow">CLAUDE CODE 사용 진단</p>
-        <h2 class="home-title">내 AI 사용 습관,<br />점수로 받아보기</h2>
-        <p class="home-lead">최근 30일 Claude Code 기록을 읽어 5가지 축으로 진단해요.<br />데이터는 내 컴퓨터의 <code>~/.claude</code>에서만 읽고, 밖으로 나가지 않아요.</p>
-        <button id="btn-home-analyze" class="primary home-cta">분석하기</button>
-      </div>
-
-      <div class="home-axes-block">
-        <h3 class="home-sec-title">이 5가지를 봐요</h3>
-        <div class="home-axes">
-          <div class="home-axis"><span class="ha-dot" style="background:#4a78d0"></span><div><b>프롬프트 구체성</b><span>맥락·제약을 담아 의도를 한 번에 전달하는가</span></div></div>
-          <div class="home-axis"><span class="ha-dot" style="background:#2ea35c"></span><div><b>학습 주도성</b><span>받은 답에 꼬리질문으로 파고드는가</span></div></div>
-          <div class="home-axis"><span class="ha-dot" style="background:#e0902a"></span><div><b>컨텍스트 운용</b><span>compact·clear로 끊어 토큰 낭비를 막는가</span></div></div>
-          <div class="home-axis"><span class="ha-dot" style="background:#e35d54"></span><div><b>비용·캐시 효율</b><span>같은 컨텍스트를 캐시에서 다시 읽는 비율</span></div></div>
-          <div class="home-axis"><span class="ha-dot" style="background:#8268d8"></span><div><b>기능 활용도</b><span>CLAUDE.md·스킬·훅·서브에이전트를 실제로 쓰는가</span></div></div>
+        <div class="home-cta-group">
+          <button id="btn-home-analyze" class="primary home-cta">
+            <span class="home-cta-title">클로드 분석하기</span>
+            <span class="home-cta-sub">최근 30일 Claude Code 기록을 읽고 진단</span>
+          </button>
+          <button id="btn-home-codex" class="home-cta home-cta-alt">
+            <span class="home-cta-title">코덱스 분석하기</span>
+            <span class="home-cta-sub">곧 지원 예정</span>
+          </button>
+          <button id="btn-home-ranking" class="home-cta home-cta-alt">
+            <span class="home-cta-title">랭킹</span>
+            <span class="home-cta-sub">다른 사람들과 내 점수 비교</span>
+          </button>
         </div>
       </div>
 
@@ -82,28 +79,29 @@
 
       <section class="sec">
         <h2 class="sec-title">3. 사용 내역</h2>
-        <div class="cols2">
-          <div>
-            <h3 class="sub-title">작업 의도별 세션 <span class="hint">세션 전체 대화 내용으로 분류 (폴더·첫 문장 안 씀)</span></h3>
-            <div class="donut-wrap"><div id="cat-donut"></div></div>
-            <div id="categories"></div>
-            <div id="project-types" class="ptypes"></div>
+        <div class="usage-stack">
+          <div class="usage-row">
+            <h3 class="chart-head">
+              <span class="chart-name">작업 의도별 세션</span>
+            </h3>
+            <div class="usage-row-body">
+              <div class="donut-wrap"><div id="cat-donut"></div></div>
+              <div class="usage-legend">
+                <div id="categories"></div>
+              </div>
+            </div>
           </div>
-          <div id="activities-block">
-            <h3 class="sub-title">활동별 토큰 <span class="hint">각 응답이 쓴 도구·고친 파일로 추정</span></h3>
-            <div class="donut-wrap"><div id="act-donut"></div></div>
-            <div id="activities"></div>
+          <div id="activities-block" class="usage-row">
+            <h3 class="chart-head">
+              <span class="chart-name">활동별 토큰</span>
+            </h3>
+            <div class="usage-row-body">
+              <div class="donut-wrap"><div id="act-donut"></div></div>
+              <div class="usage-legend" id="activities"></div>
+            </div>
           </div>
         </div>
-        <div id="tools-block">
-          <h3 class="sub-title gap-top">자주 쓴 도구 <span class="hint">도구 성격별 호출 비중</span></h3>
-          <div id="tool-groups"></div>
-          <details id="tool-detail">
-            <summary>도구별 상세 보기 <span class="hint">호출 상위 12개</span></summary>
-            <div id="tool-top"></div>
-            <div id="tool-legend" class="stack-legend"></div>
-          </details>
-        </div>
+        <div id="project-types" class="ptypes-section"></div>
       </section>
 
       <section class="sec" id="inventory-card">
@@ -125,12 +123,11 @@
         </div>
       </section>
 
-      <section class="sec">
-        <h2 class="sec-title">5. 권고 사항 <span class="hint">규칙 기반 진단</span></h2>
-        <div id="recs"></div>
-      </section>
-
       <p class="footnote" id="meta"></p>
+
+      <div class="report-foot">
+        <button id="btn-back-home" class="back-home">← 메인으로 돌아가기</button>
+      </div>
     </main>
   </div>
 
@@ -142,6 +139,63 @@
       </div>
       <div id="criteria-body"></div>
       <p class="footnote">모든 축은 최종 5~98점으로 잘려요. 가점마다 만점 기준(상한)이 있어서 한 신호가 점수를 독식하지 못해요.</p>
+    </div>
+  </div>
+
+  <div id="axis-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="axis-modal-title">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-head">
+        <h2 id="axis-modal-title" class="sec-title">세부 수치</h2>
+        <button id="btn-axis-close" class="modal-close" aria-label="닫기">×</button>
+      </div>
+      <div id="axis-modal-body"></div>
+    </div>
+  </div>
+
+  <div id="rank-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rank-modal-title">
+    <div class="modal-box modal-box-rank">
+      <div class="modal-head">
+        <h2 id="rank-modal-title" class="sec-title">랭킹</h2>
+        <button id="btn-rank-close" class="modal-close" aria-label="닫기">×</button>
+      </div>
+      <div id="rank-modal-body"></div>
+    </div>
+  </div>
+
+  <div id="score-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="score-detail-title">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-head">
+        <h2 id="score-detail-title" class="sec-title">내 세부 점수</h2>
+        <button id="btn-score-detail-close" class="modal-close" aria-label="닫기">×</button>
+      </div>
+      <div id="score-detail-body"></div>
+    </div>
+  </div>
+
+  <div id="nick-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="nick-modal-title">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-head">
+        <h2 id="nick-modal-title" class="sec-title">닉네임 설정</h2>
+        <button id="btn-nick-close" class="modal-close" aria-label="닫기">×</button>
+      </div>
+      <p class="nick-help">랭킹에 표시될 이름이에요. 다른 사람에게 공개되니 실명·개인정보는 피해주세요.</p>
+      <input id="nick-input" class="nick-input" type="text" maxlength="24" placeholder="닉네임 (최대 24자)" autocomplete="off" />
+      <div class="nick-actions">
+        <button id="btn-nick-save" class="primary">저장</button>
+        <button id="btn-nick-skip" class="nick-skip">나중에</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="access-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="access-modal-title">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-head">
+        <h2 id="access-modal-title" class="sec-title">폴더 접근 허용</h2>
+      </div>
+      <p class="nick-help">분석하려면 Claude Code 사용 기록이 있는 <code>~/.claude</code> 폴더 접근을 한 번 허용해야 해요. 폴더 선택 창에서 그대로 “이 폴더 허용”을 누르면 됩니다. 내용은 이 컴퓨터 안에서만 읽고, 외부로 보내지 않아요.</p>
+      <div class="nick-actions">
+        <button id="btn-access-choose" class="primary">폴더 선택</button>
+      </div>
     </div>
   </div>
 

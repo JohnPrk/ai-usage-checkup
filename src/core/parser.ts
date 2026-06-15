@@ -47,6 +47,10 @@ const FILE_REF_RE =
 // 검증 보강(Best Practices "Give Claude a way to verify"): 테스트·빌드·검증 실행을 요청하는가
 const VERIFY_RE =
   /테스트|test\b|빌드|build\b|컴파일|compile|린트|lint\b|타입\s?체크|typecheck|tsc\b|스크린샷|screenshot|돌려|실행(?:해|시켜)|검증|run the (?:tests?|build)/i;
+// @ 파일 멘션: 경로(슬래시 포함) 또는 파일.확장자를 동반한 @ 만 인정 (@media·@핸들·@패키지 오탐 줄임)
+const AT_MENTION_RE = /(?:^|[\s(])@(?:[\w.-]+\/[\w./-]*|[\w-]+\.\w{1,6}\b)/;
+// 확장 사고 escalation: 의도적으로 더 깊은 사고를 요청한 트리거(ultrathink 등). 늘 켜둔 자동 thinking과 구분한다
+const THINK_ESCALATE_RE = /\bultrathink\b|\bmegathink\b|\bthink (?:hard|harder|deeply|more|a lot|step by step|really)/i;
 
 // 작업 의도 분류: 세션 전체 사람 메시지에서 어떤 의도가 몇 번 드러났는지 센다 (디렉토리·첫 문장이 아니라 내용으로 분류).
 // 구체적인 의도(버그·학습·글쓰기·환경·리팩토링)를 먼저 두고, '기능 개발'은 넓은 기본 의도라 마지막.
@@ -121,6 +125,10 @@ export async function parseSession(
     substantiveDirectives: 0,
     fileRefDirectives: 0,
     verifyDirectives: 0,
+    thinkEscalations: 0,
+    imageInputs: 0,
+    backgroundRuns: 0,
+    atMentions: 0,
     learning: { chain2: 0, chain3: 0, grabQs: 0, whyQs: 0, confirmQs: 0 },
     assistantMsgs: 0,
     usage: { input: 0, output: 0, cacheRead: 0, cacheCreate5m: 0, cacheCreate1h: 0 },
@@ -149,6 +157,11 @@ export async function parseSession(
     for await (const line of rl) {
       if (!line) continue;
       if (line.length > MAX_LINE_LENGTH) {
+        // 붙여넣은 이미지는 base64라 라인이 거대해 통째로 스킵된다. JSON 파싱 없이 사용 여부만 싸게 본다
+        // (tool_result 스크린샷은 제외 — 사용자가 직접 붙인 입력만)
+        if (line.includes('"type":"image"') && line.includes('"type":"user"') && !line.includes('"tool_result"')) {
+          s.imageInputs++;
+        }
         skippedLines++;
         continue;
       }
@@ -216,6 +229,10 @@ function ingest(
   if (obj.type === 'user') {
     const text = extractText(obj.message?.content);
     if (text === null) return; // tool_result만 있는 기계 메시지
+    // 붙여넣은 이미지(1MB 미만이라 스킵 안 된 라인): 사용자 메시지의 직접 image 블록
+    if (Array.isArray(obj.message?.content)) {
+      for (const c of obj.message.content as any[]) if (c && c.type === 'image') s.imageInputs++;
+    }
     s.userMsgs++;
     if (text.includes('[Request interrupted')) s.interruptions++;
     const re = /<command-name>([^<]+)<\/command-name>/g;
@@ -228,6 +245,8 @@ function ingest(
     const isHuman = !!clean && !isMetaText(clean) && !clean.includes('[Request interrupted');
     if (isHuman) {
       s.humanMsgs++;
+      if (AT_MENTION_RE.test(clean)) s.atMentions++;
+      if (THINK_ESCALATE_RE.test(clean)) s.thinkEscalations++;
       // 작업 의도 키워드 집계 (세션 전체 사람 메시지 누적 → categorize가 사용)
       for (const it of INTENT_RES) {
         if (it.re.test(clean)) s.intentHits[it.name] = (s.intentHits[it.name] ?? 0) + 1;
@@ -306,6 +325,8 @@ function collectToolUse(content: unknown, s: SessionSummary, meta: MsgMeta | nul
     s.toolCounts[c.name] = (s.toolCounts[c.name] ?? 0) + 1;
     meta?.tools.push(c.name);
     const input = c.input && typeof c.input === 'object' ? c.input : {};
+    // 백그라운드 실행: run_in_background=true 로 띄운 도구(Bash·Agent 등)
+    if (input.run_in_background === true) s.backgroundRuns++;
     if (c.name === 'Edit' || c.name === 'Write' || c.name === 'NotebookEdit') {
       const fp =
         typeof input.file_path === 'string'

@@ -1,9 +1,13 @@
-import { app, BrowserWindow, clipboard, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } from 'electron';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { runAnalysis } from '../core/analyze';
 import { runCoaching } from '../core/llm';
-import { Report, SnapshotMeta } from '../core/types';
+import { Report, SnapshotMeta, RankResult, RankView, LeaderboardView, LeaderboardRow, LeaderboardRowView } from '../core/types';
+import { submitAndRank, getRank, leaderboard as fetchLeaderboard, setName as remoteSetName } from '../core/remote';
+import { standingFor } from '../core/tier';
+import { randomUUID } from 'crypto';
 
 let win: BrowserWindow | null = null;
 let lastReport: Report | null = null;
@@ -19,7 +23,7 @@ function createWindow(): void {
     y: workArea.y,
     minWidth: 880,
     minHeight: 640,
-    title: 'AI 분석 리포트',
+    title: 'AI 리포트',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
     },
@@ -39,26 +43,59 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  migrateSnapshots();
+  migrateUserData();
   createWindow();
 });
 
-// 앱 이름이 'AI Usage Checkup' → 'AI 분석 리포트'로 바뀌면서 userData 폴더도 바뀐다.
-// 옛 폴더에만 스냅샷이 있으면 새 폴더로 한 번 복사해 추이를 잇는다.
-function migrateSnapshots(): void {
+// 앱 이름(productName)이 바뀌면 userData 폴더 경로도 같이 바뀐다.
+// "AI Usage Checkup" → "AI 분석 리포트" → "AI 리포트" 로 두 번 개명했다.
+// 새 폴더에 없는 항목만 옛 폴더에서 한 번 복사해, install_id(랭킹 신원)·스냅샷(추이)·닉네임을
+// 끊김 없이 잇는다. install_id 를 이어받아야 개명 때마다 서버에 "고스트 행"이 새로 생기지 않는다.
+function migrateUserData(): void {
+  const appData = app.getPath('appData');
+  const newDir = app.getPath('userData');
+  const oldDirs = ['AI 분석 리포트', 'AI Usage Checkup'].map((n) => path.join(appData, n));
+
+  // 단일 파일(install_id·nickname): 새 폴더에 없으면 옛 폴더에서 처음 발견된 걸 복사
+  const copyFileIfMissing = (rel: string): void => {
+    const dest = path.join(newDir, rel);
+    if (fs.existsSync(dest)) return;
+    for (const d of oldDirs) {
+      const src = path.join(d, rel);
+      if (fs.existsSync(src)) {
+        try {
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.copyFileSync(src, dest);
+        } catch {
+          // 마이그레이션 실패는 치명적이지 않다
+        }
+        return;
+      }
+    }
+  };
+
   try {
-    const newDir = snapshotsDir();
-    if (fs.existsSync(newDir) && fs.readdirSync(newDir).length > 0) return;
-    const oldDir = path.join(app.getPath('appData'), 'AI Usage Checkup', 'snapshots');
-    if (!fs.existsSync(oldDir)) return;
-    fs.mkdirSync(newDir, { recursive: true });
-    for (const f of fs.readdirSync(oldDir)) {
-      if (/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) {
-        fs.copyFileSync(path.join(oldDir, f), path.join(newDir, f));
+    copyFileIfMissing('install_id');
+    copyFileIfMissing('nickname');
+
+    // 스냅샷 폴더: 새 폴더가 비어 있을 때만 옛 폴더 전체를 복사한다
+    const newSnaps = snapshotsDir();
+    const dateJson = /^\d{4}-\d{2}-\d{2}\.json$/;
+    const hasNew = fs.existsSync(newSnaps) && fs.readdirSync(newSnaps).some((f) => dateJson.test(f));
+    if (!hasNew) {
+      for (const d of oldDirs) {
+        const oldSnaps = path.join(d, 'snapshots');
+        if (fs.existsSync(oldSnaps) && fs.readdirSync(oldSnaps).some((f) => dateJson.test(f))) {
+          fs.mkdirSync(newSnaps, { recursive: true });
+          for (const f of fs.readdirSync(oldSnaps)) {
+            if (dateJson.test(f)) fs.copyFileSync(path.join(oldSnaps, f), path.join(newSnaps, f));
+          }
+          break;
+        }
       }
     }
   } catch {
-    // 마이그레이션 실패는 치명적이지 않다 (스냅샷은 다시 쌓인다)
+    // 마이그레이션 실패는 치명적이지 않다 (스냅샷은 다시 쌓이고 install_id 는 새로 발급된다)
   }
 }
 
@@ -67,15 +104,36 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.handle('analyze', async (_e, days: number) => {
-  const report = await runAnalysis(days || 30, (p) => {
-    win?.webContents.send('progress', p);
-  });
-  lastReport = report;
-  saveSnapshot(report);
-  return report;
+  // App Store(MAS) 빌드: 컨테이너 밖(~/.claude) 읽기는 사용자가 허용한 폴더의
+  // security-scoped 북마크로만 가능하다. 북마크가 없으면 폴더 허용을 먼저 요청한다.
+  let stop: (() => void) | null = null;
+  if (process.mas) {
+    const bm = readBookmark();
+    if (!bm) return { status: 'need_access' };
+    try {
+      stop = app.startAccessingSecurityScopedResource(bm) as () => void;
+    } catch {
+      return { status: 'need_access' };
+    }
+  }
+  try {
+    const report = await runAnalysis(days || 30, (p) => {
+      win?.webContents.send('progress', p);
+    });
+    lastReport = report;
+    // 분석하면 자동으로 점수(숫자만)를 올리고 순위를 받아 리포트에 싣는다 (버튼 없이 바로)
+    const rank = await pushScore(report);
+    if (rank) report.rank = rank;
+    saveSnapshot(report);
+    return report;
+  } finally {
+    if (stop) stop();
+  }
 });
 
 ipcMain.handle('coach', async () => {
+  // App Store(MAS) 빌드에서는 외부 claude CLI 실행이 불가해 코칭을 제공하지 않는다
+  if (process.mas) return { status: 'error', message: '코칭은 직접 배포판에서만 제공돼요.' };
   if (!lastReport) return { status: 'error', message: '먼저 분석을 실행해주세요.' };
   return runCoaching(lastReport, 'opus');
 });
@@ -88,6 +146,172 @@ ipcMain.handle('copy', (_e, text: string) => {
 ipcMain.handle('history', () => listSnapshots());
 
 ipcMain.handle('snapshot', (_e, date: string) => loadSnapshot(date));
+
+// 점수 재전송 없이 순위만 갱신 (현재 분석 결과 기준)
+ipcMain.handle('rank', async () => {
+  if (!lastReport) return null;
+  try {
+    return toView(await getRank(reportAvg(lastReport)));
+  } catch {
+    return null;
+  }
+});
+
+// 홈 시작화면용: 가장 최근 저장본의 점수로 최신 순위를 바로 조회
+ipcMain.handle('latestRank', async () => {
+  const snaps = listSnapshots();
+  if (!snaps.length) return null;
+  try {
+    return toView(await getRank(snaps[0].avgScore));
+  } catch {
+    return null;
+  }
+});
+
+// 랭킹 리더보드: 상위 5위 + 내 행. 행마다 티어(엠블럼)까지 계산해 내려보낸다.
+ipcMain.handle('leaderboard', () => leaderboardView());
+
+// 닉네임(공개 랭킹 표시명): 로컬 userData 에 저장. 파일 유무로 "이미 정했는지"를 구분한다.
+ipcMain.handle('getNickname', () => readNickname());
+ipcMain.handle('setNickname', (_e, name: string) => writeNickname(name));
+
+// App Store(MAS) 폴더 접근: ~/.claude 를 한 번 선택받아 북마크로 저장한다.
+// defaultPath 를 .claude 로 줘서 숨김 폴더여도 그 안에서 창이 열린다.
+ipcMain.handle('chooseClaudeDir', async () => {
+  const opts: Electron.OpenDialogOptions = {
+    defaultPath: path.join(os.homedir(), '.claude'),
+    properties: ['openDirectory'],
+    securityScopedBookmarks: true,
+    buttonLabel: '이 폴더 허용',
+    message: 'AI 리포트가 사용 기록을 읽을 ~/.claude 폴더를 허용해주세요',
+  };
+  const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+  if (res.canceled || !res.filePaths.length) return { ok: false };
+  if (res.bookmarks && res.bookmarks[0]) writeBookmark(res.bookmarks[0]);
+  return { ok: true, path: res.filePaths[0] };
+});
+
+// 렌더러 온보딩 분기용: MAS 빌드인지 + 폴더 접근 북마크 보유 여부
+ipcMain.handle('claudeAccess', () => ({ isMas: process.mas === true, hasAccess: !!readBookmark() }));
+
+// ── App Store(MAS) 폴더 접근: security-scoped bookmark ──────────────
+// 샌드박스에서 ~/.claude 를 읽으려면 사용자가 고른 폴더의 북마크가 필요하다.
+// 닉네임·install_id 와 같은 방식으로 userData 에 base64 문자열로 저장한다.
+function bookmarkPath(): string {
+  return path.join(app.getPath('userData'), 'claude-bookmark');
+}
+function readBookmark(): string | null {
+  try {
+    const b = fs.readFileSync(bookmarkPath(), 'utf8').trim();
+    return b || null;
+  } catch {
+    return null;
+  }
+}
+function writeBookmark(b: string): void {
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.writeFileSync(bookmarkPath(), b);
+  } catch {
+    // 저장 실패해도 다음 실행 때 다시 허용을 요청하면 된다
+  }
+}
+
+// ── 익명 랭킹: 설치 ID · 닉네임 · 전송 ──────────────────────────────
+// 첫 실행 때 한 번 만든 랜덤 UUID. 로그인 대신 "이 설치"를 식별한다 (개인정보 아님)
+function installId(): string {
+  const p = path.join(app.getPath('userData'), 'install_id');
+  try {
+    const cur = fs.readFileSync(p, 'utf8').trim();
+    if (cur) return cur;
+  } catch {
+    // 없으면 새로 만든다
+  }
+  const id = randomUUID();
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, id);
+  } catch {
+    // 저장 실패해도 이번 세션 id는 반환
+  }
+  return id;
+}
+
+// 닉네임은 userData/nickname 파일에 저장한다(install_id 와 같은 방식). 파일이 없으면 "아직 안 정함".
+function nicknamePath(): string {
+  return path.join(app.getPath('userData'), 'nickname');
+}
+function readNickname(): { name: string; chosen: boolean } {
+  try {
+    return { name: fs.readFileSync(nicknamePath(), 'utf8').trim(), chosen: true };
+  } catch {
+    return { name: '', chosen: false };
+  }
+}
+function writeNickname(name: string): string {
+  const clean = String(name ?? '').trim().slice(0, 24);
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.writeFileSync(nicknamePath(), clean);
+  } catch {
+    // 저장 실패해도 이번 세션 값은 반환
+  }
+  // 이미 분석해 서버에 행이 있으면 닉네임을 즉시 반영한다(행이 없으면 set_name 은 no-op)
+  remoteSetName(installId(), clean).catch(() => {});
+  return clean;
+}
+
+// 리포트 점수 → 서버로 보낼 숫자들. 축별 점수 + 평균, 이게 전부다
+function reportAvg(r: Report): number {
+  const s = r.scores || [];
+  return s.length ? Math.round(s.reduce((a, x) => a + x.score, 0) / s.length) : 0;
+}
+function reportAxes(r: Report): Record<string, number> {
+  const o: Record<string, number> = {};
+  for (const s of r.scores || []) o[s.axis] = Math.round(s.score);
+  return o;
+}
+// 서버 응답(숫자) → 티어/상위%까지 계산한 뷰. 표본 수와 무관하게 percentile 만 있으면 티어를 매긴다.
+function toView(r: RankResult): RankView {
+  const v: RankView = { ...r };
+  if (r.percentile != null) {
+    const s = standingFor(r.percentile);
+    v.tier = { key: s.tier.key, name: s.tier.name, color: s.tier.color };
+    v.topPct = s.topPct;
+  }
+  return v;
+}
+
+async function pushScore(r: Report): Promise<RankView | null> {
+  try {
+    return toView(
+      await submitAndRank(installId(), reportAvg(r), reportAxes(r), app.getVersion(), readNickname().name),
+    );
+  } catch (e) {
+    console.error('[rank] submit failed', e);
+    return null;
+  }
+}
+
+// 리더보드: 서버가 준 행별 percentile → 티어(엠블럼 키)를 채워 renderer 에 내려보낸다.
+function rowWithTier(r: LeaderboardRow): LeaderboardRowView {
+  if (r.percentile == null) return { ...r };
+  const s = standingFor(r.percentile);
+  return { ...r, tier: { key: s.tier.key, name: s.tier.name, color: s.tier.color } };
+}
+async function leaderboardView(): Promise<LeaderboardView | null> {
+  try {
+    const lb = await fetchLeaderboard(installId(), 5);
+    return {
+      total: lb.total,
+      top: (lb.top ?? []).map(rowWithTier),
+      me: lb.me ? rowWithTier(lb.me) : null,
+    };
+  } catch (e) {
+    console.error('[leaderboard] failed', e);
+    return null;
+  }
+}
 
 function snapshotsDir(): string {
   return path.join(app.getPath('userData'), 'snapshots');

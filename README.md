@@ -1,4 +1,4 @@
-# AI 성적표
+# AI 리포트
 
 Claude Code를 얼마나 잘 쓰고 있는지 진단해주는 데스크탑 앱 (Mac / Windows).
 
@@ -53,7 +53,7 @@ src/
 ## 패키징 (mac dmg)
 
 ```bash
-npm run dist   # release/AI 성적표-0.4.0-arm64.dmg
+npm run dist   # release/AI 리포트-0.4.0-arm64.dmg
 ```
 
 미서명(ad-hoc) 빌드라서 받은 쪽에서 처음 열 때 우클릭 → 열기가 필요할 수 있다.

@@ -6,3 +6,10 @@ release/
 .DS_Store
 .claude/settings.local.json
 .claude/launch.json
+.idea/
+.agents/
+# 루트에 잘못 생성된 빌드 산출물(진짜는 src/renderer/ 에 있음). 앞 슬래시로 루트만 매칭 — src/renderer/style.css 보호.
+/renderer.js
+/style.css
+# MAS 서명용 provisioning profile(바이너리·서명 자산). 로컬 빌드엔 남고 public 레포엔 올리지 않는다.
+build/embedded.provisionprofile

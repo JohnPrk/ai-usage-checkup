@@ -1,20 +1,21 @@
 {
   "name": "ai-usage-checkup",
-  "productName": "AI 분석 리포트",
-  "version": "0.6.1",
+  "productName": "AI 리포트",
+  "version": "0.7.0",
   "description": "Claude Code 사용 패턴 분석 + opus 코칭 데스크탑 앱",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc && cp src/renderer/index.html src/renderer/style.css dist/renderer/",
+    "build": "tsc && cp src/renderer/index.html src/renderer/style.css dist/renderer/ && mkdir -p dist/renderer/emblems && cp src/renderer/emblems/*.png dist/renderer/emblems/",
     "start": "npm run build && electron .",
     "cli": "node dist/core/cli.js",
     "predist": "node scripts/ensure-nfd.mjs",
     "dist": "npm run build && electron-builder",
     "dist:mac": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --mac --arm64 --publish never",
-    "dist:win": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --win --x64"
+    "dist:win": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --win --x64",
+    "dist:mas-store": "node scripts/ensure-nfd.mjs && npm run build && electron-builder --mac mas --arm64"
   },
   "build": {
-    "appId": "com.tnew.ai-usage-checkup",
+    "appId": "com.tinho.ai-usage-checkup",
     "files": [
       "dist/**/*",
       "package.json"
@@ -24,6 +25,7 @@
     },
     "mac": {
       "target": "dmg",
+      "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -31,6 +33,13 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true,
       "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}"
+    },
+    "mas": {
+      "type": "distribution",
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "provisioningProfile": "build/embedded.provisionprofile",
+      "hardenedRuntime": false
     },
     "dmg": {
       "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}"

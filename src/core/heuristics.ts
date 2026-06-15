@@ -1,6 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
-import { AxisCriterion, Behavior, Inventory, Rec, SessionSummary } from './types';
+import { AxisCriterion, Behavior, Inventory, Rec, ScoreMetric, SessionSummary } from './types';
 
 // 세션을 연 위치가 진짜 프로젝트 폴더인지, 홈·바탕화면처럼 폴더 없이 연 것인지 구분한다
 type DirKind = 'project' | 'loose' | 'temp';
@@ -111,20 +111,20 @@ export interface HeuristicInput {
   reviewShare: number; // 전체 토큰 중 '코드 읽기·검수' 활동 비중
   understandShare: number; // 이해 중심 활동(대화·설계 + 코드 읽기·검수) 토큰 비중 — 학습 '양'의 축
   studyShare: number; // '학습·이해' 의도 세션 비중
-  featureCoverage: { name: string; used: boolean }[]; // 공식 기능 목록 중 기간 내 사용 여부 — 기능 활용도 커버리지
+  featureCoverage: { name: string; used: boolean; weight?: number; adopt?: number }[]; // 공식 기능 목록(가중·채택도 포함). adopt=사용 횟수 기반 채택 단계(0~1)
+  skillConcentration: number; // 스킬 호출 상위 1개 점유율 (쏠림). 호출이 적으면 신뢰도가 낮다
+  skillUseTotal: number; // 스킬 총 호출 수 (쏠림 판단의 표본 크기)
+  exploreShare: number; // 읽기·탐색 도구 비중 — 서브에이전트가 필요한 상황인지 판단
 }
 
 const clamp = (v: number): number => Math.max(5, Math.min(98, Math.round(v)));
 
 export function buildScores(
   h: HeuristicInput
-): { axis: string; score: number; desc: string; detail: string }[] {
+): { axis: string; score: number; desc: string; metrics: ScoreMetric[] }[] {
   const b = h.behavior;
   const n = Math.max(1, h.mainCount);
   const pctOf = (v: number) => Math.round(v * 100);
-  const claudeMdHave = b.claudeMd.length
-    ? b.claudeMd.filter((c) => c.has).length / b.claudeMd.length
-    : 0;
 
   const contextScore = clamp(
     80 -
@@ -136,31 +136,43 @@ export function buildScores(
       (b.avgSessionMin > 120 ? 10 : 0)
   );
   // 프롬프트 구체성 = 의도를 한 번에 전달하는 습관. 첫 메시지 길이(셋업)뿐 아니라
-  // 세션 중간 지시에 맥락이 담기는 비중(80자+ 지시)을 함께 본다. 포화점: 첫 메시지 180자, 본문 지시 28%.
+  // 세션 중간 지시에 맥락이 담기는 비중(80자+ 지시)을 함께 본다. 각 항목 만점 도달점: 첫 메시지 195자(195/6.5=30), 본문 지시 ~30%(0.30×116≈35). 데이터 앵커 180자·28%는 그 ~92%선.
   // Esc 중단은 출발이 어긋났다는 결과 신호라 감점. (정정 루프는 측정 결과 시도 크기에 비례해 신호로 안 씀 — 2026-06-11)
   // 보강(Best Practices): 길이뿐 아니라 지시가 구체 파일·경로(@)를 지목하고 검증 실행을 요청하는지를 직접 본다.
   // 재보정 2026-06-11: 기본점을 낮춰 곡선을 아래로(적당히 잘 쓰면 70~80, 90+는 거의 만점급). 캐시 축은 예외
+  // 천장 정규화(2026-06-14): gain 만점 85를 ×(89/85)=89로 늘려 base 9 + 89 = 98(다른 축과 동일). Esc 감점은 그대로. 곱셈이라 상대 위치 보존.
   const promptScore = clamp(
     9 +
-      Math.min(30, b.medianFirstPromptLen / 6.5) +
-      Math.min(35, b.substantiveDirectiveShare * 116) +
-      Math.min(12, b.fileRefDirectiveShare * 38) +
-      Math.min(8, b.verifyDirectiveShare * 38) -
+      (Math.min(30, b.medianFirstPromptLen / 6.5) +
+        Math.min(35, b.substantiveDirectiveShare * 116) +
+        Math.min(12, b.fileRefDirectiveShare * 38) +
+        Math.min(8, b.verifyDirectiveShare * 38)) *
+        (89 / 85) -
       Math.min(16, b.escPer100 * 1.9)
   );
-  // 기능 활용도 = 공식 Claude Code 기능을 얼마나 두루 쓰는가(커버리지) + 자주 쓰는 자산의 깊이.
-  // 커버리지는 analyze에서 탐지한 공식 기능 목록(현재 12개) 중 기간 내 사용 비율 (2026-06-11 재정의: 단순 보유 합산 → 커버리지 중심)
+  // 기능 활용도 = 폭(가중·채택 커버리지) + 쏠림 적음(분포) + 상황 적합성 + 자산 깊이.
+  // 천장을 다른 축과 같은 98로 맞춘다: 기본 2 + 폭 52 + 쏠림 30 + 적합성 8 + 깊이 6.
+  // 2026-06-14: 재설계 → 1차 냉정(서브에이전트 직접호출·채택 단계) → 2차 냉정(자동 도구 가중↓ + 거의 공짜이던 적합성·깊이 12+10 →8+6, 쏠림 22→30 강화).
   const usedSkills = h.inventory.skills.filter((s) => s.uses > 0).length;
-  const featTotal = Math.max(1, h.featureCoverage.length);
-  const featUsed = h.featureCoverage.filter((f) => f.used).length;
-  const coverage = featUsed / featTotal;
-  const featureScore = clamp(
-    2 +
-      coverage * 56 +
-      claudeMdHave * 8 +
-      Math.min(7, usedSkills * 1.5) +
-      Math.min(5, b.topCommands.length * 1.5)
-  );
+  // 1) 폭: 기능별 '가중×채택도' 커버리지. 자동 보조도구(MCP·할일·웹)는 weight 0.4, 직접 셋업 기능은 1.0. adopt는 사용 횟수 기반(analyze.ts).
+  const wTotal = h.featureCoverage.reduce((a, f) => a + (f.weight ?? 1), 0) || 1;
+  // adopt(채택도 0~1)로 가중: 자주 쓰는 기능은 만점, 한두 번 써본 기능은 부분만 인정. (구버전 스냅샷은 adopt 없어 used로 폴백)
+  const wUsed = h.featureCoverage.reduce((a, f) => a + (f.adopt ?? (f.used ? 1 : 0)) * (f.weight ?? 1), 0);
+  const weightedCoverage = wUsed / wTotal;
+  const breadth = weightedCoverage * 52;
+  // 2) 쏠림: 스킬 호출이 한 개에 몰릴수록 깎는다(다양하게 쓰는가). 호출이 적으면(<8) 표본이 작아 판단 보류(중립).
+  const divFactor =
+    h.skillUseTotal < 8 ? 0.7 : Math.max(0, Math.min(1, (0.7 - h.skillConcentration) / (0.7 - 0.3)));
+  const diversity = divFactor * 30;
+  // 3) 상황 적합성: 작업이 그 기능을 필요로 하는데 안 쓰면 깎인다. 필요 없으면 중립(만점). 서브에이전트는 '직접 호출'만 인정(b.subagentRuns).
+  const needSubagent = h.exploreShare >= 0.35 || b.longNoCompactSessions >= 2 || b.avgSessionMin > 90;
+  const subagentFit = needSubagent ? (b.subagentRuns > 0 ? 4 : 0) : 4;
+  const needHook = b.correctionStormSessions >= 1 || b.directiveMsgs >= 30;
+  const hookFit = needHook ? (h.inventory.hooks.length > 0 ? 4 : 0) : 4;
+  const fit = subagentFit + hookFit;
+  // 4) 깊이: 스킬을 실제로 다양하게 호출하는가 + 쓰는 커맨드 종류
+  const depth = Math.min(4, usedSkills * 0.8) + Math.min(2, b.topCommands.length * 0.6);
+  const featureScore = clamp(2 + breadth + diversity + fit + depth);
   // 비용 보강(agent-design): 탐색·간단 작업을 저렴 모델(Haiku)에 위임하면 소폭 가점
   const costScore = clamp(
     h.cacheHitRate * 100 - Math.max(0, h.recacheRate - 0.35) * 60 + Math.min(6, b.cheaperModelShare * 40)
@@ -173,11 +185,13 @@ export function buildScores(
   // 비중 = 이해 중심 활동 + 전용 학습 분야 블렌드. 질은 높아도 학습 비중이 낮으면 점수가 눌린다 (2026-06-11)
   const learnUsageShare = 0.65 * h.understandShare + 0.35 * h.studyShare;
   const learnVolumeFactor = 0.5 + 0.5 * Math.min(1, learnUsageShare / 0.3);
+  // 천장 정규화(2026-06-14): learnQuality 만점 73을 ×(87/73)=87로 늘려 base 11 + 87×factor(≤1) = 98. 곱셈이라 상대 위치 보존.
   const learnQuality =
-    Math.min(35, (lg.chainPer100 + lg.chain3Per100 + lg.grabPer100) * 3) +
-    Math.min(20, lg.whyPer100 * 1.75) +
-    Math.min(8, lg.confirmPer100 * 5) +
-    Math.min(10, b.questionRatio * 20);
+    (Math.min(35, (lg.chainPer100 + lg.chain3Per100 + lg.grabPer100) * 3) +
+      Math.min(20, lg.whyPer100 * 1.75) +
+      Math.min(8, lg.confirmPer100 * 5) +
+      Math.min(10, b.questionRatio * 20)) *
+    (87 / 73);
   const learningScore = clamp(11 + learnQuality * learnVolumeFactor);
 
   return [
@@ -185,31 +199,60 @@ export function buildScores(
       axis: '프롬프트 구체성',
       score: promptScore,
       desc: '요청에 맥락·제약을 담아 의도를 한 번에 전달하는가',
-      detail: `첫 메시지 중앙값 ${b.medianFirstPromptLen}자 · 80자 이상 지시 ${pctOf(b.substantiveDirectiveShare)}% · 파일 지목 ${pctOf(b.fileRefDirectiveShare)}% · 검증 요청 ${pctOf(b.verifyDirectiveShare)}% · 중단 ${b.escPer100.toFixed(1)}회/100메시지`,
+      metrics: [
+        { label: '첫 메시지 길이 (세션 중앙값)', value: `${b.medianFirstPromptLen}자`, hint: '길수록 좋아요' },
+        { label: '80자 이상 구체 지시 비중', value: `${pctOf(b.substantiveDirectiveShare)}%`, hint: '높을수록 좋아요' },
+        { label: '파일·경로(@) 지목 비중', value: `${pctOf(b.fileRefDirectiveShare)}%`, hint: '높을수록 좋아요' },
+        { label: '테스트·빌드 등 검증 요청 비중', value: `${pctOf(b.verifyDirectiveShare)}%`, hint: '높을수록 좋아요' },
+        { label: 'Esc로 끊고 다시 지시', value: `${b.escPer100.toFixed(1)}회/100메시지`, hint: '적을수록 좋아요' },
+      ],
     },
     {
       axis: '학습 주도성',
       score: learningScore,
       desc: '받은 답을 그대로 두지 않고 꼬리질문으로 파고드는가',
-      detail: `100메시지당 꼬리체인 ${lg.chainPer100.toFixed(1)} · 왜·원리 ${lg.whyPer100.toFixed(1)} · 질문 비율 ${pctOf(b.questionRatio)}%`,
+      metrics: [
+        { label: '꼬리질문 체인 (이어 파고들기)', value: `${lg.chainPer100.toFixed(1)}회/100메시지`, hint: '많을수록 좋아요' },
+        { label: '왜·원리를 묻는 질문', value: `${lg.whyPer100.toFixed(1)}회/100메시지`, hint: '많을수록 좋아요' },
+        { label: '이해 확인 ("~란 거지?")', value: `${lg.confirmPer100.toFixed(1)}회/100메시지`, hint: '많을수록 좋아요' },
+        { label: '질문 비율', value: `${pctOf(b.questionRatio)}%`, hint: '높을수록 좋아요 (보조 신호)' },
+        { label: '학습에 쓰는 비중', value: `${pctOf(learnUsageShare)}%`, hint: '낮으면 위 점수가 깎여요' },
+      ],
     },
     {
       axis: '컨텍스트 운용',
       score: contextScore,
       desc: '대화가 커지기 전에 compact·clear로 끊어 토큰 낭비를 막는가',
-      detail: `2시간+ 무압축 세션 ${b.longNoCompactSessions}개 · compact 쓴 세션 ${b.compactSessions}개 · /clear·/compact ${b.clearCompactCommands}회 · 정정폭주 세션 ${b.correctionStormSessions}개 · 평균 ${Math.round(b.avgSessionMin)}분`,
+      metrics: [
+        { label: '2시간+ compact 없이 이어간 세션', value: `${b.longNoCompactSessions}개`, hint: '적을수록 좋아요 (영향이 가장 큼)' },
+        { label: 'compact 쓴 세션', value: `${b.compactSessions}개`, hint: '많을수록 좋아요' },
+        { label: '/clear·/compact로 끊은 횟수', value: `${b.clearCompactCommands}회`, hint: '많을수록 좋아요' },
+        { label: '한 세션 3회+ 중단·정정 (컨텍스트 오염)', value: `${b.correctionStormSessions}개`, hint: '적을수록 좋아요' },
+        { label: '평균 세션 길이', value: `${Math.round(b.avgSessionMin)}분`, hint: '너무 길지 않을수록 좋아요' },
+      ],
     },
     {
       axis: '비용·캐시 효율',
       score: costScore,
       desc: '같은 컨텍스트를 다시 계산하지 않고 캐시에서 읽는 비율',
-      detail: `캐시 적중 ${pctOf(h.cacheHitRate)}% · 캐시 재작성 ${pctOf(h.recacheRate)}% · 저렴 모델 ${pctOf(b.cheaperModelShare)}%`,
+      metrics: [
+        { label: '캐시 적중률', value: `${pctOf(h.cacheHitRate)}%`, hint: '높을수록 좋아요 (이 값이 곧 점수)' },
+        { label: '캐시 재작성률', value: `${pctOf(h.recacheRate)}%`, hint: '낮을수록 좋아요' },
+        { label: '저렴 모델(Haiku 등) 비중', value: `${pctOf(b.cheaperModelShare)}%`, hint: '높을수록 좋아요' },
+      ],
     },
     {
       axis: '기능 활용도',
       score: featureScore,
-      desc: '공식 기능(스킬·훅·서브에이전트·MCP·플랜 모드 등)을 두루 쓰는가',
-      detail: `공식 기능 ${featUsed}/${featTotal} 사용 · CLAUDE.md ${b.claudeMd.filter((c) => c.has).length}/${b.claudeMd.length} · 커맨드 ${b.topCommands.length}종 · 스킬 ${usedSkills}/${h.inventory.skills.length} 호출 · 훅 ${h.inventory.hooks.length}개 · 서브에이전트 ${b.subagentRuns}회`,
+      desc: '공식 기능을 내 작업에 맞게, 한쪽에 치우치지 않고 두루 쓰는가',
+      metrics: [
+        { label: '가중 채택 커버리지', value: `${pctOf(weightedCoverage)}%`, hint: '사용 횟수로 채택도를 매겨 가중(자주=만점·맛보기=0.4). 영향이 가장 큼' },
+        { label: '자주 활용 / 써본 기능', value: `${h.featureCoverage.filter((f) => (f.adopt ?? (f.used ? 1 : 0)) >= 1).length} / ${h.featureCoverage.filter((f) => f.used).length} (총 ${h.featureCoverage.length})`, hint: '자주=10회+, 써봄=1회+' },
+        { label: '스킬 쏠림 (상위 1개 비중)', value: h.skillUseTotal < 8 ? '표본 적음' : `${pctOf(h.skillConcentration)}%`, hint: '낮을수록 좋아요 (고루 쓰면 가점)' },
+        { label: '상황 적합성', value: `${Math.round((fit / 8) * 100)}%`, hint: '탐색 많으면 서브에이전트, 정정 잦으면 훅을 갖췄는가' },
+        { label: '30일 내 호출한 스킬', value: `${usedSkills}/${h.inventory.skills.length}`, hint: '많을수록 좋아요' },
+        { label: '설정한 훅 / 서브에이전트 직접 호출', value: `${h.inventory.hooks.length}개 / ${b.subagentRuns}회`, hint: '서브에이전트는 직접 호출(Agent/Task)만 인정, 적합성에 반영돼요' },
+      ],
     },
   ];
 }
@@ -222,12 +265,12 @@ export function buildScoreCriteria(): AxisCriterion[] {
       what: '요청에 맥락·제약을 담아 의도를 한 번에 전달하는가',
       base: '기본 9점',
       gains: [
-        '첫 메시지 길이(세션 중앙값): 6.5자당 1점, 195자에서 +30 만점',
-        '80자 이상 지시 비중: 30%에서 +35 만점 (질문이나 "응·1번·고고" 같은 승인 답변은 지시로 안 침)',
-        '구체 파일·경로(@) 지목 비중: 32%에서 +12 만점',
-        '테스트·빌드 등 검증 실행을 함께 요청한 비중: 21%에서 +8 만점',
+        '첫 메시지를 자세히 길게 쓸수록',
+        '구체적인 지시(긴 문장)를 많이 줄수록',
+        '@로 파일·경로를 정확히 짚을수록',
+        '테스트·빌드 검증까지 함께 요청할수록',
       ],
-      penalties: ['Esc로 끊고 다시 지시: 100메시지당 1회마다 1.9점, 최대 16점'],
+      penalties: ['Esc로 도중에 끊고 다시 지시할수록'],
       sources: [
         {
           label: 'Claude Code Best Practices',
@@ -241,21 +284,19 @@ export function buildScoreCriteria(): AxisCriterion[] {
         },
       ],
       calibrationNote:
-        '길이·맥락량은 구체성의 대리지표이고, 첫 메시지 180자·지시 28% 같은 컷은 우리 데이터로 앵커링한 값(공식 문서엔 수치 기준 없음).',
+        '길이·맥락량은 구체성의 대리지표이고, 만점 도달점(첫 메시지 195자·지시 약 30%)은 우리 데이터로 앵커링한 값(공식 문서엔 수치 기준 없음). 천장은 다른 축과 같은 98로 정규화(gain×89/85), 상대 위치는 보존된다.',
     },
     {
       axis: '학습 주도성',
       what: '받은 답을 그대로 두지 않고 꼬리질문으로 파고드는가',
-      base: '기본 11점. 아래 가점 합계에 "학습 비중"(0.5~1.0배)을 곱한다',
+      base: '기본 11점에서 시작',
       gains: [
-        '파고들기(2·3연속 질문 체인 + "근데/그럼" 이어받기): 100메시지당 12회쯤에서 +35 만점',
-        '왜·원리·차이를 묻는 질문: 100메시지당 11회쯤에서 +20 만점',
-        '이해 확인형("그러니까 ~라는 거지?"): 100메시지당 1.6회에서 +8 만점',
-        '질문 비율(보조 신호): 50%에서 +10 만점',
+        '받은 답에 꼬리질문으로 더 파고들수록',
+        '왜·원리·차이를 자주 물을수록',
+        '"~라는 거지?"처럼 이해를 되짚을수록',
+        '질문을 많이 던질수록 (보조 신호)',
       ],
-      penalties: [
-        '질문의 질이 높아도 학습에 쓰는 비중이 낮으면 가점이 눌림: 비중 0%면 가점 ×0.5, 30%↑면 ×1.0 (비중 = 이해 활동 토큰 65% + 전용 학습 분야 세션 35% 블렌드)',
-      ],
+      penalties: ['학습보다 단순 작업에 치우칠수록 위 가점이 깎임'],
       sources: [
         {
           label: 'Dunlosky et al. 2013, Improving Students’ Learning (PSPI)',
@@ -265,20 +306,20 @@ export function buildScoreCriteria(): AxisCriterion[] {
         },
       ],
       calibrationNote:
-        '이 축은 우리가 정의한 합성 지표다. 구성요소(왜 질문·이해 확인)는 학습과학으로 검증됐지만 Anthropic 공식 지표는 아니며, 100메시지당 횟수 컷은 우리 데이터 앵커.',
+        '이 축은 우리가 정의한 합성 지표다. 구성요소(왜 질문·이해 확인)는 학습과학으로 검증됐지만 Anthropic 공식 지표는 아니며, 100메시지당 횟수 컷은 우리 데이터 앵커. 천장은 다른 축과 같은 98로 정규화(learnQuality×87/73), 상대 위치는 보존된다.',
     },
     {
       axis: '컨텍스트 운용',
       what: '대화가 커지기 전에 compact·clear로 끊어 토큰 낭비를 막는가',
-      base: '기본 80점 (감점 중심 축)',
+      base: '기본 80점에서 시작 (주로 감점으로 평가)',
       gains: [
-        'compact를 쓴 세션이 전체의 20% 이상이면 +15 만점',
-        '/clear·/compact로 작업을 끊은 횟수: 8회에서 +8 만점',
+        'compact로 정리하고 넘어간 세션이 많을수록',
+        '/clear·/compact로 작업을 자주 끊어줄수록',
       ],
       penalties: [
-        '2시간 넘게 compact 없이 이어간 세션 비중 × 60점',
-        '한 세션에서 3회 이상 중단·정정(컨텍스트 오염): 세션당 2점, 최대 10점',
-        '평균 세션이 120분을 넘으면 10점',
+        '2시간 넘게 정리 없이 이어간 세션이 많을수록 (가장 크게 깎임)',
+        '한 세션에서 자꾸 끊고 고칠수록 (대화가 오염됨)',
+        '평균 세션이 너무 길수록 (2시간 초과)',
       ],
       sources: [
         {
@@ -299,9 +340,9 @@ export function buildScoreCriteria(): AxisCriterion[] {
     {
       axis: '비용·캐시 효율',
       what: '같은 컨텍스트를 다시 계산하지 않고 캐시에서 읽는 비율',
-      base: '캐시 적중률이 곧 점수 (적중 96% → 96점)',
-      gains: ['저렴 모델(Haiku)로 싼 작업을 위임한 토큰 비중: 15%에서 +6 만점'],
-      penalties: ['캐시 재작성 비율이 35%를 넘는 만큼 × 60점 (예: 50%면 9점 감점)'],
+      base: '캐시 적중률이 곧 점수',
+      gains: ['간단한 일을 저렴 모델(Haiku)에 맡길수록'],
+      penalties: ['같은 내용을 캐시에서 못 읽고 자꾸 새로 계산할수록'],
       sources: [
         {
           label: 'Anthropic Prompt Caching 공식 문서',
@@ -314,15 +355,22 @@ export function buildScoreCriteria(): AxisCriterion[] {
     },
     {
       axis: '기능 활용도',
-      what: '공식 Claude Code 기능을 얼마나 두루 쓰는가(커버리지) + 자주 쓰는 자산의 깊이',
-      base: '기본 2점',
+      what: '공식 기능을 내 작업에 맞게, 한쪽에 치우치지 않고 두루 쓰는가',
+      base: '기본 2점 (천장 98점 = 폭 52 + 쏠림 30 + 적합성 8 + 깊이 6)',
       gains: [
-        '공식 기능 커버리지 × 56점: 12개(CLAUDE.md·슬래시 커맨드·서브에이전트·스킬·훅·MCP·플랜 모드·할 일 추적·웹 검색·/init·컨텍스트 관리(/compact·/clear)·외부 CLI) 중 기간 내 쓴 비율',
-        '주요 프로젝트 CLAUDE.md 보유 비율 × 8점 (깊이)',
-        '스킬 실제 호출 깊이: 호출한 스킬 수 × 1.5, 최대 7점',
-        '슬래시 커맨드 다양성: 종류 × 1.5, 최대 5점',
+        '직접 셋업하는 기능(훅·서브에이전트·MCP·플랜 모드 등)을 두루 쓸수록 (영향이 가장 큼)',
+        '한 기능을 자주 쓸수록 (10회+ 자주=만점, 5~9 가끔=0.7, 1~4 맛보기=0.4로 부분 인정)',
+        '스킬 호출이 한 개에 몰리지 않고 고루 퍼질수록',
+        '작업이 필요로 하는 기능을 갖출수록 (탐색 많으면 서브에이전트, 정정 잦으면 훅)',
+        '스킬을 다양하게 호출하고 쓰는 커맨드 종류가 많을수록',
       ],
-      penalties: [],
+      penalties: [
+        '특정 스킬 하나에 호출이 쏠릴수록',
+        '탐색·정정 부하가 큰데 서브에이전트·훅이 없을수록',
+        '한두 번 써본 기능은 부분만 인정(자주 써야 만점), 0회는 미인정',
+        '서브에이전트는 직접 호출(Agent/Task)만 인정 — 자동 사이드체인은 제외',
+        'Claude가 자동으로 부르는 보조도구(MCP·할일·웹)는 가중치를 낮춰 직접 활용과 구분',
+      ],
       sources: [
         {
           label: 'Claude Code Best Practices: Configure your environment',
@@ -330,9 +378,14 @@ export function buildScoreCriteria(): AxisCriterion[] {
           grounds:
             'CLAUDE.md·훅·서브에이전트·스킬을 권장 셋업으로 명시 ("CLAUDE.md는 매 대화 시작 시 읽는 영구 컨텍스트", "훅은 결정적으로 보장")',
         },
+        {
+          label: 'Extend Claude Code (when to use which feature)',
+          url: 'https://code.claude.com/docs/en/features-overview',
+          grounds: '기능마다 쓰는 상황(트리거)이 다름을 공식 매핑 — 넓은 탐색은 서브에이전트, 매번 실행돼야 하는 건 훅 등',
+        },
       ],
       calibrationNote:
-        '12개 기능 목록은 공식 docs(overview·memory·skills·hooks·mcp·sub-agents 등)에서 추린, 로그로 탐지 가능한 핵심 기능. 커버리지 ×56·깊이 가중은 우리 데이터 앵커. 단순 보유가 아니라 기간 내 실제 사용을 본다.',
+        '가중치(자동 도구 0.4 vs 직접 셋업 1.0), 쏠림 컷(상위1 점유율 30~70%), 적합성 임계(탐색 비중 35% 등)는 우리 데이터 앵커. 천장을 다른 축과 같은 98로 정규화했다(이전엔 최대 78이라 같은 레이더에서 불리하게 낮아 보였다). 냉정 재보정: 서브에이전트는 자동 사이드체인을 빼고 직접 호출만 인정하고, 필요 없는 상황의 적합성 공짜 점수를 18→12로 줄였다. 폭은 사용 횟수로 채택 단계를 매겨(자주 10회+/가끔 5~9/맛보기 1~4) 한두 번 써본 기능은 부분만 인정한다 — 이 컷도 우리 데이터 앵커(공식 "자주 쓴다" 기준 없음). 2차 보정: 자동 호출 보조도구(MCP·할일·웹)는 가중치 0.4로 직접 활용과 분리, 거의 공짜이던 적합성·깊이 예산(12+10)을 8+6으로 줄이고 쏠림을 22→30으로 키웠다.',
     },
   ];
 }

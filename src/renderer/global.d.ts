@@ -1,13 +1,20 @@
-import type { Coaching, Progress, Report, SnapshotMeta } from '../core/types';
+import type { Coaching, LeaderboardView, Progress, RankView, Report, SnapshotMeta } from '../core/types';
 
 declare global {
   interface Window {
     api: {
-      analyze(days: number): Promise<Report>;
+      analyze(days: number): Promise<Report | { status: 'need_access' }>;
       coach(): Promise<Coaching>;
       copy(text: string): Promise<boolean>;
       history(): Promise<SnapshotMeta[]>;
       snapshot(date: string): Promise<Report | null>;
+      rank(): Promise<RankView | null>;
+      latestRank(): Promise<RankView | null>;
+      leaderboard(): Promise<LeaderboardView | null>;
+      getNickname(): Promise<{ name: string; chosen: boolean }>;
+      setNickname(name: string): Promise<string>;
+      chooseClaudeDir(): Promise<{ ok: boolean; path?: string }>;
+      claudeAccess(): Promise<{ isMas: boolean; hasAccess: boolean }>;
       onProgress(cb: (p: Progress) => void): void;
     };
   }

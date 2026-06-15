@@ -21,6 +21,16 @@ function priceOf(model: string): { inUSD: number; outUSD: number } {
   return { inUSD: 3, outUSD: 15 };
 }
 
+// 분석(요청) 시점의 로컬 날짜·시각. toISOString()은 UTC라 자정 직후 몇 시간은
+// 전날 날짜로 찍혀 분석일·스냅샷 파일명이 다음 날로 안 넘어간다
+function localStamp(d = new Date()): string {
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    `T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
 export async function runAnalysis(days: number, onProgress?: (p: Progress) => void): Promise<Report> {
   const files = scanJsonl(days);
   // 포크·워크트리 사본의 공유 구간을 원본(먼저 생긴 파일)이 선점하도록 오래된 순으로 처리한다
@@ -154,7 +164,7 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
       projects: [...(ptPlaces.get(label) ?? new Map()).entries()]
         .map(([name, c]) => ({ name, sessions: c as number }))
         .sort((a, b) => b.sessions - a.sessions)
-        .slice(0, 5),
+        .slice(0, 8),
     }))
     .sort((a, b) => PT_ORDER.indexOf(a.label) - PT_ORDER.indexOf(b.label) || b.sessions - a.sessions);
 
@@ -229,7 +239,9 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
 
   // 행동 지표. 중단·질문은 꼬리 파일의 고유 라인도 대화의 일부라 main으로, 세션 단위 플래그는 starters로 센다
   const interruptions = main.reduce((a, s) => a + s.interruptions, 0);
-  const subagentRuns = all.filter((s) => s.isSubagentFile).length + main.filter((s) => s.hasSidechain).length;
+  // 서브에이전트는 '직접 호출'(Agent/Task 도구)만 인정한다. 자동 생성 사이드체인·서브에이전트 파일은
+  // 사용자가 의도해 위임한 게 아니므로 기능 활용도·추천에서 뺀다 (2026-06-14 냉정 재보정).
+  const subagentRuns = [...toolAgg.entries()].reduce((a, [name, n]) => a + (/^(Agent|Task)$/.test(name) ? n : 0), 0);
   const compactSessions = starters.filter((s) => s.compacts > 0).length;
   const longNoCompactSessions = starters.filter((s) => s.durationMin > 120 && s.compacts === 0).length;
   const withDuration = starters.filter((s) => s.durationMin > 0);
@@ -293,6 +305,11 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
   const cliToolUses = Object.entries(cmdDetails).reduce((a, [verb, n]) => a + (CLI_TOOLS.has(verb) ? n : 0), 0);
   const initCommands = main.reduce((a, s) => a + s.slashCommands.filter((c) => /^\/?init$/i.test(c.trim())).length, 0);
   const loopCommands = main.reduce((a, s) => a + s.slashCommands.filter((c) => /^\/?loop$/i.test(c.trim())).length, 0);
+  // 공식 기능 활용 신호: 대화 내용이라 main 기준으로 합산(포크 사본 중복 방지)
+  const thinkEscalations = main.reduce((a, s) => a + s.thinkEscalations, 0);
+  const imageInputs = main.reduce((a, s) => a + s.imageInputs, 0);
+  const backgroundRuns = main.reduce((a, s) => a + s.backgroundRuns, 0);
+  const atMentions = main.reduce((a, s) => a + s.atMentions, 0);
   // 비용: 저렴 모델(Haiku)로 싼 작업을 위임한 비중
   const haikuTokens = Object.entries(modelAgg).reduce((a, [m, v]) => a + (/haiku/i.test(m) ? v.tokens : 0), 0);
   const cheaperModelShare = totalTokens > 0 ? haikuTokens / totalTokens : 0;
@@ -339,6 +356,10 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     cliToolUses,
     initCommands,
     loopCommands,
+    thinkEscalations,
+    imageInputs,
+    backgroundRuns,
+    atMentions,
     cheaperModelShare,
     learningSignals,
     topCommands,
@@ -372,26 +393,65 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
       : 0;
   const studyShare = starters.length > 0 ? (catCount.get('학습·이해') ?? 0) / starters.length : 0;
 
-  // 공식 Claude Code 기능 커버리지: docs에서 추린 핵심 기능 중 기간 내 사용 여부를 로그·인벤토리로 탐지
-  const toolUsed = (re: RegExp): boolean => [...toolAgg.keys()].some((k) => re.test(k));
+  // 공식 Claude Code 기능 커버리지 + 채택 단계. docs에서 추린 핵심 기능별로 '사용 횟수'를 세어 채택도(adopt)를 매긴다.
+  // weight = 활용 '난이도'(자동 내장도구 0.4 / 직접 셋업 1.0). adopt = '얼마나 자주 쓰나'(자주 10+ =1.0, 가끔 5~9 =0.7, 맛보기 1~4 =0.4).
+  // 한두 번 써본 기능은 부분만 인정한다 — '다양하게 + 잘 쓰고 있나'를 재는 축이라 1회=활용으로 치지 않는다 (2026-06-14).
+  const toolCount = (re: RegExp): number => [...toolAgg.entries()].reduce((a, [k, n]) => a + (re.test(k) ? n : 0), 0);
+  const skillUsesList = inventory.skills.map((s) => s.uses);
+  const skillUseTotal = skillUsesList.reduce((a, n) => a + n, 0);
+  const skillConcentration = skillUseTotal > 0 ? Math.max(...skillUsesList) / skillUseTotal : 0;
+  // '슬래시 커맨드' 커버리지는 별도 기능으로 따로 점수화되는 커맨드(/clear·/compact·/init·/loop)를 빼고
+  // 순수 일반 커맨드만 센다 — 한 입력이 두 기능 커버리지에 중복 기여하지 않도록 (2026-06-15)
+  const isOwnFeatureCmd = (c: string) => isClearCompact(c) || /^\/?(init|loop)$/i.test(c.trim());
+  const slashTotal = [...cmdCount.entries()].reduce((a, [c, n]) => a + (isOwnFeatureCmd(c) ? 0 : n), 0);
+  const hasClaudeMd = inventory.globalClaudeMd.exists || inventory.projectClaudeMds.some((p) => p.has);
+  // 사용 횟수 → 채택 단계 (자주/가끔/맛보기/미사용)
+  // 채택 단계는 그룹 헤더(자주/가끔·맛보기/안 씀)로 보여주므로 detail엔 '횟수'만 담는다(중복 제거).
+  const graded = (count: number): { used: boolean; adopt: number; detail: string } => {
+    if (count <= 0) return { used: false, adopt: 0, detail: '' };
+    if (count >= 10) return { used: true, adopt: 1, detail: `${count.toLocaleString()}회` };
+    if (count >= 5) return { used: true, adopt: 0.7, detail: `${count}회` };
+    return { used: true, adopt: 0.4, detail: `${count}회` };
+  };
+  // 설정형(횟수가 의미 없음 — 있으면 채택): CLAUDE.md·훅·/init·커스텀 커맨드
+  const config = (count: number, unit: '보유' | '개' | '실행'): { used: boolean; adopt: number; detail: string } =>
+    count > 0
+      ? { used: true, adopt: 1, detail: unit === '개' ? `${count}개` : unit === '실행' ? '실행함' : '보유' }
+      : { used: false, adopt: 0, detail: '' };
+  const feat = (name: string, g: { used: boolean; adopt: number; detail: string }, weight: number) => ({
+    name,
+    used: g.used,
+    weight,
+    adopt: g.adopt,
+    detail: g.detail,
+  });
+  // Claude가 자동으로 부르는 보조도구(MCP 스크린샷·todo·webfetch 등)는 '· 자동' 표시 — 직접 활용과 구분(가중치도 0.4로 낮춤).
+  const autoTag = (g: { used: boolean; adopt: number; detail: string }) => (g.used ? { ...g, detail: `${g.detail} · 자동` } : g);
   const featureCoverage: Report['featureCoverage'] = [
-    { name: 'CLAUDE.md', used: inventory.globalClaudeMd.exists || inventory.projectClaudeMds.some((p) => p.has) },
-    { name: '슬래시 커맨드', used: behavior.topCommands.length > 0 },
-    { name: '서브에이전트', used: behavior.subagentRuns > 0 },
-    { name: '스킬', used: inventory.skills.some((s) => s.uses > 0) },
-    { name: '훅', used: inventory.hooks.length > 0 },
-    { name: 'MCP', used: behavior.mcpToolCalls > 0 },
-    { name: '플랜 모드', used: toolUsed(/^(ExitPlanMode|EnterPlanMode)$/) },
-    { name: '할 일 추적', used: toolUsed(/^TodoWrite$/) },
-    { name: '웹 검색·페치', used: toolUsed(/^(WebSearch|WebFetch)$/) },
-    { name: '/init', used: behavior.initCommands > 0 },
-    { name: '컨텍스트 관리', used: behavior.clearCompactCommands > 0 },
-    { name: '외부 CLI', used: behavior.cliToolUses > 0 },
-    { name: '반복 실행', used: behavior.loopCommands > 0 },
-    { name: '커스텀 커맨드', used: (inventory.customCommands ?? 0) > 0 },
+    feat('CLAUDE.md', config(hasClaudeMd ? 1 : 0, '보유'), 1),
+    feat('슬래시 커맨드', graded(slashTotal), 0.4),
+    feat('서브에이전트', graded(behavior.subagentRuns), 1),
+    feat('스킬', graded(skillUseTotal), 1),
+    feat('훅', config(inventory.hooks.length, '개'), 1),
+    feat('MCP', autoTag(graded(behavior.mcpToolCalls)), 0.4),
+    feat('플랜 모드', graded(toolCount(/^(ExitPlanMode|EnterPlanMode)$/)), 1),
+    feat('할 일 추적', autoTag(graded(toolCount(/^TodoWrite$/))), 0.4),
+    feat('웹 검색·페치', autoTag(graded(toolCount(/^(WebSearch|WebFetch)$/))), 0.4),
+    feat('/init', config(behavior.initCommands, '실행'), 1),
+    feat('컨텍스트 관리', graded(behavior.clearCompactCommands), 0.4),
+    feat('외부 CLI', graded(behavior.cliToolUses), 1),
+    feat('반복 실행', graded(behavior.loopCommands), 1),
+    feat('커스텀 커맨드', config(inventory.customCommands ?? 0, '개'), 1),
+    feat('확장 사고', graded(behavior.thinkEscalations), 1),
+    feat('이미지 입력', graded(behavior.imageInputs), 1),
+    feat('백그라운드 실행', graded(behavior.backgroundRuns), 1),
+    feat('@ 파일 멘션', graded(behavior.atMentions), 1),
   ];
+  // 기능 활용도 보조 신호: 탐색 부하(서브에이전트가 필요한 상황인지)
+  const exploreGroup = toolGroups.find((g) => g.label === '읽기·탐색');
+  const exploreShare = exploreGroup ? exploreGroup.pct / 100 : 0;
 
-  const hin = { mainCount: starters.length, cacheHitRate, recacheRate, behavior, inventory, reviewShare, understandShare, studyShare, featureCoverage: featureCoverage ?? [] };
+  const hin = { mainCount: starters.length, cacheHitRate, recacheRate, behavior, inventory, reviewShare, understandShare, studyShare, featureCoverage: featureCoverage ?? [], skillConcentration, skillUseTotal, exploreShare };
   const scores = buildScores(hin);
   const recommendations = buildRecommendations(hin);
 
@@ -412,7 +472,7 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
   }
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: localStamp(),
     days,
     files: fileCount,
     sessions: starters.length,
