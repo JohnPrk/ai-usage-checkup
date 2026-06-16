@@ -48,6 +48,11 @@ export interface SessionSummary {
   imageInputs: number; // 사용자가 붙여넣은 이미지 블록 수 (tool_result 스크린샷은 제외)
   backgroundRuns: number; // run_in_background=true 로 띄운 도구 실행 수
   atMentions: number; // @경로 파일 멘션이 들어간 사람 메시지 수
+  // 오류 회복·수렴 신호(공용 축): 도구가 실패했을 때 끝까지 잡아 해결했는가
+  toolFailures: number; // is_error=true 인 tool_result 수 (도구 실행 실패)
+  toolFailuresResolved: number; // 그중 이후 성공 도구결과로 닫힌 수 (남은 = 미해결로 끝남)
+  // (legacy) 검증 신호: '테스트를 돌렸나'. 오류 회복 축으로 대체돼 점수엔 안 쓰지만 파싱은 유지(스냅샷 호환·표시용)
+  verifyRuns: number; // Bash 명령 중 test·build·lint 성격(VERIFY_CMD_RE) 실행 수
   // 학습 주도성 신호: 받은 답을 그대로 두지 않는 행동의 횟수
   learning: {
     chain2: number; // 2연속 질문 체인 (꼬리질문 시작)
@@ -117,6 +122,11 @@ export interface Behavior {
   substantiveDirectiveShare: number; // 지시형 중 80자 이상 비중 — 세션 중간에도 맥락을 담아 지시하는가
   fileRefDirectiveShare: number; // 지시 중 구체 파일·경로·@ 지목 비중 (구체성 보강 신호)
   verifyDirectiveShare: number; // 지시 중 테스트·빌드·검증 실행을 함께 요청한 비중 (구체성 보강 신호)
+  // 오류 회복·수렴 축(공용): 도구 실패를 끝까지 해결했는가
+  failureSessions: number; // is_error/비0 종료가 1회+ 난 세션 수 (회복력 표본)
+  unresolvedFailSessions: number; // 그중 실패를 해결 못한 채 끝난 세션 수
+  meanUnresolvedShare: number; // 실패 세션별 (미해결/실패) 평균 — 버릴 때 통째로 버리는 '심각도'(균등가중)
+  failureEvents: number; // 실패 이벤트 총수 (표시·표본용)
   escPer100: number; // 사람 메시지 100개당 Esc 중단 횟수
   questionRatio: number; // 사람이 친 전체 메시지 중 질문형 비율 (학습 주도성의 보조 신호)
   // 컨텍스트 위생 보강 (Best Practices "/clear between tasks", 실패패턴 "correcting over and over")
@@ -248,4 +258,96 @@ export interface Progress {
   phase: string;
   done: number;
   total: number;
+}
+
+// ── Codex(OpenAI) 전용 ──────────────────────────────────────────────
+// Codex rollout jsonl 한 세션(파일 1개 = 1세션) 파싱 결과. Claude의 SessionSummary와
+// 목적은 같지만 신호가 다르다(자율 실행·apply_patch·plan·web_search 등). codex/analyze가 Report로 집계한다.
+export interface CodexSession {
+  file: string;
+  cwd: string | null;
+  originator: string | null; // 'Codex Desktop' | 'codex_vscode' | 'codex_cli'
+  category: string;
+  firstPrompt: string;
+  intentHits: Record<string, number>;
+  firstTs: number | null;
+  lastTs: number | null;
+  durationMin: number;
+  // 사람 입력 (event_msg user_message)
+  userMsgs: number;
+  humanMsgs: number;
+  questionMsgs: number;
+  directiveMsgs: number;
+  substantiveDirectives: number; // 80자 이상 지시
+  fileRefDirectives: number; // 파일·경로·@ 지목 지시
+  verifyDirectives: number; // 테스트·빌드·검증 실행을 함께 요청한 지시
+  atMentions: number;
+  skillMentions: number; // user_message의 [$skill](...) 멘션 수
+  // 학습 주도성 신호(공용 축, Claude parser와 동일 로직): 받은 답을 그대로 두지 않는 질문 패턴
+  learning: { chain2: number; chain3: number; grabQs: number; whyQs: number; confirmQs: number };
+  // 자율 실행
+  taskStarted: number; // event_msg task_started
+  taskComplete: number; // event_msg task_complete
+  aborted: number; // event_msg turn_aborted (사용자 중단)
+  rolledBack: number; // event_msg thread_rolled_back
+  toolChain: number; // 도구 호출 총합 (턴당 연쇄 길이의 분자)
+  // 오류 회복·수렴(공용 축): function_call_output 의 비0 종료/실패를 이후 성공으로 닫았는가
+  toolFailures: number; // exited with code N(≠0) 또는 success:false 인 function_call_output 수
+  toolFailuresResolved: number; // 그중 이후 성공 도구결과로 닫힌 수
+  // (legacy) 검증
+  applyPatches: number; // custom_tool_call apply_patch (코드 편집)
+  execRuns: number; // exec_command + shell_command
+  verifyRuns: number; // 그중 test·build·lint 명령
+  // 계획·구조화
+  planUses: number; // update_plan
+  goalUses: number; // create_goal + update_goal
+  // 자산·기능
+  webSearches: number; // web_search_call (내장 웹검색)
+  mcpCalls: number; // MCP function_call (_*)
+  writeStdins: number; // write_stdin (대화형 프로세스 조작)
+  reasoningCount: number; // reasoning response_item (GPT-5 추론)
+  skillUses: Record<string, number>; // user_message에서 멘션된 스킬 이름별 횟수
+  // 토큰 (세션 마지막 total_token_usage 누적값)
+  tokens: { input: number; cachedInput: number; output: number; reasoning: number; total: number };
+  // 도구·활동·일별
+  toolCounts: Record<string, number>; // function_call/custom_tool_call name 별 카운트
+  activities: Record<string, ActivityCount>; // Codex는 토큰 귀속이 어려워 total=도구 호출 수로 집계
+  daily: Record<string, number>; // 'YYYY-MM-DD'(로컬) → 그날 증분 토큰(last_token_usage 합)
+}
+
+// Codex 5축 점수 계산 입력(codex/heuristics.buildCodexScores). analyze가 세션 집계로 채운다.
+export interface CodexBehavior {
+  sessions: number;
+  humanMsgs: number;
+  medianFirstPromptLen: number;
+  substantiveDirectiveShare: number;
+  fileRefDirectiveShare: number;
+  verifyDirectiveShare: number;
+  abortPer100: number; // 사람 메시지 100개당 중단+롤백
+  avgSessionMin: number;
+  // 학습 주도성(공용 축): 질문 패턴 100메시지당 + 질문 비율 + 학습에 쓰는 비중
+  questionRatio: number;
+  learningSignals: { chainPer100: number; chain3Per100: number; grabPer100: number; whyPer100: number; confirmPer100: number };
+  learnUsageShare: number; // Codex는 '학습·이해' 세션 비중 기반(토큰 귀속 불가)
+  // 자율 실행
+  taskCompletionRate: number; // task_complete / task_started
+  avgToolChain: number; // task당 평균 도구 호출 수
+  aborts: number; // 중단+롤백 총수(표시용)
+  // 오류 회복·수렴(공용 축): function_call_output 실패를 이후 성공으로 닫았는가
+  failureSessions: number; // 비0 종료/실패가 1회+ 난 세션 수 (회복력 표본)
+  unresolvedFailSessions: number; // 그중 실패를 해결 못한 채 끝난 세션 수
+  meanUnresolvedShare: number; // 실패 세션별 (미해결/실패) 평균 — 버릴 때 통째로 버리는 '심각도'(균등가중)
+  failureEvents: number; // 실패 이벤트 총수 (표시·표본용)
+  // (legacy) 검증
+  applyPatches: number;
+  verifyAfterPatchShare: number; // 코드 수정이 있는 세션 중 검증 명령을 함께 돌린 비율
+  verifyRunShare: number; // exec 중 test·build·lint 비율
+  // 계획·구조화
+  planSessionShare: number; // update_plan/goal을 쓴 세션 비율
+  planUses: number;
+  goalUses: number;
+  // 자산·기능
+  webSearches: number;
+  mcpCalls: number;
+  skillMentions: number;
 }

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
   analyze: (days: number) => ipcRenderer.invoke('analyze', days),
+  analyzeCodex: (days: number) => ipcRenderer.invoke('analyzeCodex', days),
   coach: () => ipcRenderer.invoke('coach'),
   copy: (text: string) => ipcRenderer.invoke('copy', text),
   history: () => ipcRenderer.invoke('history'),

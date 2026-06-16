@@ -12,6 +12,8 @@ const $ = (id: string): HTMLElement => {
 };
 
 let running = false;
+// 현재 분석 대상: 클로드(~/.claude) vs 코덱스(~/.codex). render·인벤토리 라벨 분기에 쓴다
+let currentSource: 'claude' | 'codex' = 'claude';
 // 세부 수치 팝업이 참조할 현재 리포트 (구조화된 metrics를 data-attribute로 넘기기 어려워 인덱스로 조회)
 let modalReport: UsageReport | null = null;
 
@@ -283,17 +285,18 @@ window.api.onProgress((p) => {
   $('progress-label').textContent = `${p.phase} (${p.done}/${p.total})`;
 });
 
-async function analyze(): Promise<void> {
+async function analyze(source: 'claude' | 'codex' = 'claude'): Promise<void> {
   if (running) return;
   running = true;
+  currentSource = source;
   $('report').classList.add('hidden');
   $('onboarding').classList.add('hidden');
   $('home').classList.add('hidden');
   $('progress').classList.remove('hidden');
   $('subtitle').classList.remove('hidden');
-  $('subtitle').textContent = '최근 30일 기록을 읽는 중…';
+  $('subtitle').textContent = source === 'codex' ? '최근 Codex 기록을 읽는 중…' : '최근 30일 기록을 읽는 중…';
   try {
-    const report = await window.api.analyze(30);
+    const report = source === 'codex' ? await window.api.analyzeCodex(90) : await window.api.analyze(30);
     if ('status' in report) {
       // MAS 빌드: ~/.claude 접근이 아직 허용 안 됨 → 폴더 허용 받고 자동 재시도
       $('progress').classList.add('hidden');
@@ -303,7 +306,7 @@ async function analyze(): Promise<void> {
     }
     $('progress').classList.add('hidden');
     render(report);
-    void loadHistory(); // 방금 저장된 스냅샷이 목록에 보이게
+    if (source === 'claude') void loadHistory(); // 방금 저장된 스냅샷이 목록에 보이게 (Codex는 스냅샷 범위 밖)
   } catch (e) {
     // 진행 영역을 그대로 두고 에러를 보여준다. 여기서 숨기면 실패가 무반응처럼 보인다
     ($('bar-fill') as HTMLElement).style.width = '0%';
@@ -325,7 +328,7 @@ function render(r: UsageReport, snapshotDate?: string): void {
   $('doc-actions').classList.remove('hidden');
   // 제목 밑에 한 줄 설명(왼쪽이 허전하지 않게), 분석일·세션은 오른쪽에 두 줄로
   $('subtitle').classList.remove('hidden');
-  $('subtitle').textContent = 'Claude Code 사용 습관 진단';
+  $('subtitle').textContent = currentSource === 'codex' ? 'Codex 사용 습관 진단' : 'Claude Code 사용 습관 진단';
   const sessN = r.sessions.toLocaleString();
   $('report-meta').innerHTML = snapshotDate
     ? `<span>${snapshotDate} 저장본</span><span>세션 ${sessN}개</span>`
@@ -344,7 +347,7 @@ function render(r: UsageReport, snapshotDate?: string): void {
 
   $('meta').textContent =
     `파일 ${r.files}개 · 건너뛴 라인 ${r.skippedLines.toLocaleString()}개 · ` +
-    `예상 사용 비용 ${fmtUSD(r.estCostUSD)} (API 환산 참고치) · 데이터는 내 컴퓨터의 ~/.claude/projects에서만 읽었어요`;
+    `예상 사용 비용 ${fmtUSD(r.estCostUSD)} (API 환산 참고치) · 데이터는 내 컴퓨터의 ${currentSource === 'codex' ? '~/.codex/sessions' : '~/.claude/projects'}에서만 읽었어요`;
 
   $('report').classList.remove('hidden');
 }
@@ -357,6 +360,16 @@ function renderOnboarding(r: UsageReport): void {
   $('subtitle').classList.remove('hidden');
   $('subtitle').textContent = '분석할 기록이 없어요';
   const steps = $('onboarding-steps');
+  if (currentSource === 'codex') {
+    steps.innerHTML = [
+      `<li>Codex(OpenAI) 사용 기록이 <code>~/.codex/sessions</code>에 아직 없어요</li>`,
+      `<li>Codex Desktop이나 CLI로 작업을 해보세요</li>`,
+      `<li><code>AGENTS.md</code>에 프로젝트 규칙·명령·검증 절차를 적어두면 좋아요</li>`,
+      `<li>며칠 쓰고 다시 코덱스 분석하기를 눌러보세요</li>`,
+    ].join('');
+    $('onboarding').classList.remove('hidden');
+    return;
+  }
   const hasBinary = !!r.env.claudeBinary;
   steps.innerHTML = [
     hasBinary
@@ -681,6 +694,7 @@ function renderInventory(r: UsageReport): void {
   }
   card.classList.remove('hidden');
   const inv = r.inventory;
+  $('inv-claudemd-title').textContent = currentSource === 'codex' ? 'AGENTS.md' : 'CLAUDE.md';
   const kb = (b: number): string => (b >= 1024 ? (b / 1024).toFixed(1) + 'KB' : b + 'B');
   // 리스트가 길면 5개만 보이고 나머지는 '⋯ N개 더'로 접는다(클릭하면 펼침)
   const capped = (rows: string[], cap = 5): string => {
@@ -695,7 +709,7 @@ function renderInventory(r: UsageReport): void {
 
   // CLAUDE.md: 바탕화면·홈에서 훑어 '있는 곳'만 보여준다. 상위 폴더 상속분(woowa_course 등)은 출처를 덧붙인다.
   const mdScanned = [
-    { name: '전역 ~/.claude', has: inv.globalClaudeMd.exists, bytes: inv.globalClaudeMd.bytes, note: '' },
+    { name: currentSource === 'codex' ? '전역 ~/.codex' : '전역 ~/.claude', has: inv.globalClaudeMd.exists, bytes: inv.globalClaudeMd.bytes, note: '' },
     ...inv.projectClaudeMds.map((p) => ({
       name: p.project,
       has: p.has,
@@ -739,7 +753,7 @@ function renderInventory(r: UsageReport): void {
       </div>`;
         })
       )
-    : '<p class="hint">~/.claude/skills에 스킬이 없어요</p>';
+    : `<p class="hint">${currentSource === 'codex' ? '~/.codex/skills' : '~/.claude/skills'}에 스킬이 없어요</p>`;
 
   // 훅: 이벤트 배지 + 스크립트 칩
   $('inv-hooks').innerHTML = inv.hooks.length
@@ -904,11 +918,6 @@ async function openScoreDetail(): Promise<void> {
     `<ul class="sd-list">${rows}</ul>`;
 }
 
-// 임시 버튼(코덱스): 아직 화면이 없어 헤더에 안내만 띄운다
-function comingSoon(msg: string): void {
-  $('subtitle').textContent = msg;
-}
-
 // ── 닉네임(공개 랭킹 표시명) ───────────────────────────────────────
 let myNick = '';
 let nickFirstRun = false;
@@ -1016,11 +1025,12 @@ async function loadHistory(): Promise<void> {
 async function viewSnapshot(date: string): Promise<void> {
   const r = await window.api.snapshot(date);
   if (!r) return;
+  currentSource = 'claude';
   render(r, date);
 }
 
-$('btn-home-analyze').addEventListener('click', () => void analyze());
-$('btn-home-codex').addEventListener('click', () => comingSoon('Codex 분석은 준비 중이에요'));
+$('btn-home-analyze').addEventListener('click', () => void analyze('claude'));
+$('btn-home-codex').addEventListener('click', () => void analyze('codex'));
 $('btn-home-ranking').addEventListener('click', () => void openRankModal());
 $('app-title').addEventListener('click', () => showHome());
 $('btn-back-home').addEventListener('click', () => showHome());

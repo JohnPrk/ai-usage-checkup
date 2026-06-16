@@ -1,7 +1,7 @@
 {
   "name": "ai-usage-checkup",
   "productName": "AI 리포트",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Claude Code 사용 패턴 분석 + opus 코칭 데스크탑 앱",
   "main": "dist/main/main.js",
   "scripts": {

@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { scanJsonl } from './scanner';
+import { scanJsonl, ScannedFile } from './scanner';
 import { parseSession } from './parser';
 import { buildRecommendations, buildScoreCriteria, buildScores, categorize, placeLabel, projectKind } from './heuristics';
 import { buildInventory } from './inventory';
 import { findClaude } from './llm';
 import { claudeProjectDirs } from './paths';
+import { BaseAnalyzer } from './provider';
 import { Behavior, Progress, Report, SessionSummary } from './types';
 
 // USD / 1M tokens. 캐시 읽기 = input의 0.1배, 캐시 쓰기 = 1.25배(5분) / 2배(1시간)
@@ -31,29 +32,49 @@ function localStamp(d = new Date()): string {
   );
 }
 
-export async function runAnalysis(days: number, onProgress?: (p: Progress) => void): Promise<Report> {
-  const files = scanJsonl(days);
-  // 포크·워크트리 사본의 공유 구간을 원본(먼저 생긴 파일)이 선점하도록 오래된 순으로 처리한다
-  const ordered = [...files].sort((a, b) => a.mtimeMs - b.mtimeMs);
-  const seenUuids = new Set<string>();
-  const sessions: SessionSummary[] = [];
-  let skippedLines = 0;
-  let done = 0;
-  for (const f of ordered) {
-    onProgress?.({ phase: '세션 파일 분석 중', done, total: files.length });
-    try {
-      const { session, skippedLines: sk } = await parseSession(f, seenUuids);
-      skippedLines += sk;
-      sessions.push(session);
-    } catch {
-      // 깨진 파일은 건너뛴다
-    }
-    done++;
+// Claude Code 사용 로그(~/.claude/projects/**.jsonl) 분석기.
+export class ClaudeAnalyzer extends BaseAnalyzer<ScannedFile, SessionSummary> {
+  readonly id = 'claude' as const;
+  readonly label = 'Claude Code';
+
+  protected scan(days: number): ScannedFile[] {
+    return scanJsonl(days);
   }
-  // 코칭 샘플은 최신 세션부터 뽑으므로 최신순으로 되돌린다
-  sessions.sort((a, b) => (b.lastTs ?? 0) - (a.lastTs ?? 0));
-  onProgress?.({ phase: '집계 중', done: files.length, total: files.length });
-  return aggregate(days, files.length, sessions, skippedLines);
+
+  protected async parseAll(
+    files: ScannedFile[],
+    onProgress?: (p: Progress) => void
+  ): Promise<{ sessions: SessionSummary[]; skippedLines: number }> {
+    // 포크·워크트리 사본의 공유 구간을 원본(먼저 생긴 파일)이 선점하도록 오래된 순으로 처리한다
+    const ordered = [...files].sort((a, b) => a.mtimeMs - b.mtimeMs);
+    const seenUuids = new Set<string>();
+    const sessions: SessionSummary[] = [];
+    let skippedLines = 0;
+    let done = 0;
+    for (const f of ordered) {
+      onProgress?.({ phase: '세션 파일 분석 중', done, total: files.length });
+      try {
+        const { session, skippedLines: sk } = await parseSession(f, seenUuids);
+        skippedLines += sk;
+        sessions.push(session);
+      } catch {
+        // 깨진 파일은 건너뛴다
+      }
+      done++;
+    }
+    // 코칭 샘플은 최신 세션부터 뽑으므로 최신순으로 되돌린다
+    sessions.sort((a, b) => (b.lastTs ?? 0) - (a.lastTs ?? 0));
+    return { sessions, skippedLines };
+  }
+
+  protected aggregate(days: number, fileCount: number, sessions: SessionSummary[], skippedLines: number): Report {
+    return aggregate(days, fileCount, sessions, skippedLines);
+  }
+}
+
+// 기존 호출부 호환 래퍼 (main.ts·cli). 내부적으로 ClaudeAnalyzer.run 을 쓴다.
+export function runAnalysis(days: number, onProgress?: (p: Progress) => void): Promise<Report> {
+  return new ClaudeAnalyzer().run(days, onProgress);
 }
 
 function aggregate(days: number, fileCount: number, all: SessionSummary[], skippedLines: number): Report {
@@ -291,6 +312,16 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
   const verifyDirectives = main.reduce((a, s) => a + s.verifyDirectives, 0);
   const fileRefDirectiveShare = directiveMsgs > 0 ? fileRefDirectives / directiveMsgs : 0;
   const verifyDirectiveShare = directiveMsgs > 0 ? verifyDirectives / directiveMsgs : 0;
+  // 오류 회복·수렴 축(공용): 도구 실패(is_error)가 난 세션 중 끝까지 해결(이후 성공으로 닫힘)된 비율.
+  // 세션 단위는 파일 단위로 근사 — 이어하기·포크 꼬리의 도구결과도 자기 파일에 집계되고, 점수는 비율이라 robust.
+  const failSessionList = main.filter((s) => s.toolFailures > 0);
+  const failureSessions = failSessionList.length;
+  const unresolvedFailSessions = failSessionList.filter((s) => s.toolFailures - s.toolFailuresResolved > 0).length;
+  // 균등가중 미해결 비율: 세션별 (미해결/실패)의 평균 — 큰 세션이 좌우 못 하게. 실패 1개를 통째로 버린 세션을 세게(=1) 잡는다.
+  const meanUnresolvedShare = failureSessions > 0
+    ? failSessionList.reduce((a, s) => a + (s.toolFailures - s.toolFailuresResolved) / s.toolFailures, 0) / failureSessions
+    : 0;
+  const failureEvents = main.reduce((a, s) => a + s.toolFailures, 0);
   // 컨텍스트 위생: /clear·/compact 커맨드 사용 / 한 세션 정정 폭주(3회+)
   const isClearCompact = (c: string) => /^\/?(clear|compact)$/i.test(c.trim());
   const clearCompactCommands = main.reduce((a, s) => a + s.slashCommands.filter(isClearCompact).length, 0);
@@ -348,6 +379,10 @@ function aggregate(days: number, fileCount: number, all: SessionSummary[], skipp
     substantiveDirectiveShare,
     fileRefDirectiveShare,
     verifyDirectiveShare,
+    failureSessions,
+    unresolvedFailSessions,
+    meanUnresolvedShare,
+    failureEvents,
     escPer100,
     questionRatio,
     clearCompactCommands,

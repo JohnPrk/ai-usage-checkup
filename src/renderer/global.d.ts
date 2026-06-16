@@ -4,6 +4,7 @@ declare global {
   interface Window {
     api: {
       analyze(days: number): Promise<Report | { status: 'need_access' }>;
+      analyzeCodex(days: number): Promise<Report>;
       coach(): Promise<Coaching>;
       copy(text: string): Promise<boolean>;
       history(): Promise<SnapshotMeta[]>;

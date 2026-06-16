@@ -47,6 +47,9 @@ const FILE_REF_RE =
 // 검증 보강(Best Practices "Give Claude a way to verify"): 테스트·빌드·검증 실행을 요청하는가
 const VERIFY_RE =
   /테스트|test\b|빌드|build\b|컴파일|compile|린트|lint\b|타입\s?체크|typecheck|tsc\b|스크린샷|screenshot|돌려|실행(?:해|시켜)|검증|run the (?:tests?|build)/i;
+// 검증·반영 축의 분자: 실제로 돌린 테스트·빌드·린트 성격의 셸 명령. Codex 파서와 공유한다.
+const VERIFY_CMD_RE =
+  /\b(tests?|gradlew|mvnw|mvn|pytest|jest|vitest|tsc|lint|eslint|ruff|clippy|cargo|go\s+test|npm\s+(?:run\s+)?(?:test|build|lint)|yarn\s+(?:test|build|lint)|pnpm\s+(?:test|build|lint)|\.\/gradlew|make\s+test)\b/i;
 // @ 파일 멘션: 경로(슬래시 포함) 또는 파일.확장자를 동반한 @ 만 인정 (@media·@핸들·@패키지 오탐 줄임)
 const AT_MENTION_RE = /(?:^|[\s(])@(?:[\w.-]+\/[\w./-]*|[\w-]+\.\w{1,6}\b)/;
 // 확장 사고 escalation: 의도적으로 더 깊은 사고를 요청한 트리거(ultrathink 등). 늘 켜둔 자동 thinking과 구분한다
@@ -129,6 +132,9 @@ export async function parseSession(
     imageInputs: 0,
     backgroundRuns: 0,
     atMentions: 0,
+    toolFailures: 0,
+    toolFailuresResolved: 0,
+    verifyRuns: 0,
     learning: { chain2: 0, chain3: 0, grabQs: 0, whyQs: 0, confirmQs: 0 },
     assistantMsgs: 0,
     usage: { input: 0, output: 0, cacheRead: 0, cacheCreate5m: 0, cacheCreate1h: 0 },
@@ -149,6 +155,8 @@ export async function parseSession(
   const msgMeta = new Map<string, MsgMeta>();
   // 연속 질문 체인 추적 (직전 사람 메시지가 질문이었는지)
   const qState = { prevQ: false, run: 0 };
+  // 오류 회복 추적: 아직 성공으로 닫히지 않은 실패 수(이후 성공 도구결과가 나오면 0으로 리셋)
+  const recState = { pending: 0 };
   let skippedLines = 0;
 
   const stream = fs.createReadStream(f.file, { encoding: 'utf8' });
@@ -183,7 +191,7 @@ export async function parseSession(
         }
         seenUuids.add(uid);
       }
-      ingest(obj, s, seenMessageIds, msgMeta, qState);
+      ingest(obj, s, seenMessageIds, msgMeta, qState, recState);
     }
   } finally {
     rl.close();
@@ -212,7 +220,8 @@ function ingest(
   s: SessionSummary,
   seenMessageIds: Set<string>,
   msgMeta: Map<string, MsgMeta>,
-  qState: { prevQ: boolean; run: number }
+  qState: { prevQ: boolean; run: number },
+  recState: { pending: number }
 ): void {
   if (obj.isCompactSummary === true) s.compacts++;
   if (obj.isSidechain === true) s.hasSidechain = true;
@@ -227,6 +236,9 @@ function ingest(
   if (typeof obj.entrypoint === 'string' && !s.entrypoint) s.entrypoint = obj.entrypoint;
 
   if (obj.type === 'user') {
+    // 도구 실행 결과(tool_result)는 기계 메시지지만 오류 회복 신호의 핵심이다.
+    // is_error=true=실패(분자), 그 외 성공 결과는 이전 실패들을 닫는다. text===null 로 빠지기 전에 먼저 본다.
+    collectToolResults(obj.message?.content, s, recState);
     const text = extractText(obj.message?.content);
     if (text === null) return; // tool_result만 있는 기계 메시지
     // 붙여넣은 이미지(1MB 미만이라 스킵 안 된 라인): 사용자 메시지의 직접 image 블록
@@ -337,11 +349,31 @@ function collectToolUse(content: unknown, s: SessionSummary, meta: MsgMeta | nul
       const dot = fp.lastIndexOf('.');
       if (dot > 0 && meta) meta.exts.push(fp.slice(dot + 1).toLowerCase());
     }
-    if (c.name === 'Bash' && typeof input.command === 'string' && meta) {
-      meta.verbs.push(...commandVerbs(input.command));
+    if (c.name === 'Bash' && typeof input.command === 'string') {
+      if (meta) meta.verbs.push(...commandVerbs(input.command));
+      // 검증·반영: 코드 수정 뒤 test·build·lint 를 실제로 돌렸는지 (verifyDirectives=요청, verifyRuns=실행)
+      if (VERIFY_CMD_RE.test(input.command)) s.verifyRuns++;
     }
     if (c.name === 'Skill' && typeof input.skill === 'string') {
       s.skillUses[input.skill] = (s.skillUses[input.skill] ?? 0) + 1;
+    }
+  }
+}
+
+// 오류 회복·수렴: tool_result 블록을 훑어 실패(is_error)와 성공을 가른다.
+// pending = 아직 성공으로 안 닫힌 실패 수. 성공 결과가 나오면 그동안의 실패를 모두 '해결됨'으로 닫는다.
+// 세션 끝까지 pending이 남으면 그만큼이 '미해결로 끝남'(toolFailures - toolFailuresResolved).
+// 거대한 성공 결과(1MB+ Read 등)는 라인째 스킵돼 못 볼 수 있으나, 실패 결과는 작아 누락 거의 없다(데이터 앵커).
+function collectToolResults(content: unknown, s: SessionSummary, rec: { pending: number }): void {
+  if (!Array.isArray(content)) return;
+  for (const c of content as any[]) {
+    if (!c || c.type !== 'tool_result') continue;
+    if (c.is_error === true) {
+      s.toolFailures++;
+      rec.pending++;
+    } else {
+      s.toolFailuresResolved += rec.pending;
+      rec.pending = 0;
     }
   }
 }
@@ -400,3 +432,20 @@ function addUsage(s: SessionSummary, model: string, u: any): void {
   pm.cacheRead += read;
   pm.cacheCreate += c1h + c5m;
 }
+
+// Codex 파서(src/core/codex/parser.ts)와 공유하는 텍스트 분석 상수·함수.
+// 한국어 질문/지시/의도 패턴은 도구가 Claude든 Codex든 그대로 유효하므로 재사용한다.
+export {
+  QUESTION_RE,
+  ACK_RE,
+  WHY_RE,
+  CONFIRM_RE,
+  GRAB_RE,
+  FILE_REF_RE,
+  VERIFY_RE,
+  VERIFY_CMD_RE,
+  AT_MENTION_RE,
+  INTENT_RES,
+  commandVerbs,
+  isMetaText,
+};

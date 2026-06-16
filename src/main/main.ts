@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { runAnalysis } from '../core/analyze';
+import { runCodexAnalysis } from '../core/codex/analyze';
 import { runCoaching } from '../core/llm';
 import { Report, SnapshotMeta, RankResult, RankView, LeaderboardView, LeaderboardRow, LeaderboardRowView } from '../core/types';
 import { submitAndRank, getRank, leaderboard as fetchLeaderboard, setName as remoteSetName } from '../core/remote';
@@ -129,6 +130,13 @@ ipcMain.handle('analyze', async (_e, days: number) => {
   } finally {
     if (stop) stop();
   }
+});
+
+ipcMain.handle('analyzeCodex', async (_e, days: number) => {
+  // Codex 분석은 ~/.codex/sessions 를 읽는다. 랭킹·스냅샷·코칭은 이번 범위 밖(분석→표시만).
+  return runCodexAnalysis(days || 30, (p) => {
+    win?.webContents.send('progress', p);
+  });
 });
 
 ipcMain.handle('coach', async () => {
