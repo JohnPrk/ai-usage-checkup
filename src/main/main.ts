@@ -125,7 +125,7 @@ ipcMain.handle('analyze', async (_e, days: number) => {
     // 분석하면 자동으로 점수(숫자만)를 올리고 순위를 받아 리포트에 싣는다 (버튼 없이 바로)
     const rank = await pushScore(report);
     if (rank) report.rank = rank;
-    saveSnapshot(report);
+    saveSnapshot(report, 'claude');
     return report;
   } finally {
     if (stop) stop();
@@ -133,10 +133,13 @@ ipcMain.handle('analyze', async (_e, days: number) => {
 });
 
 ipcMain.handle('analyzeCodex', async (_e, days: number) => {
-  // Codex 분석은 ~/.codex/sessions 를 읽는다. 랭킹·스냅샷·코칭은 이번 범위 밖(분석→표시만).
-  return runCodexAnalysis(days || 30, (p) => {
+  // Codex 분석은 ~/.codex/sessions 를 읽는다. 랭킹·코칭은 범위 밖(클로드 점수 기준)이지만,
+  // 스냅샷은 남겨 이전 결과·점수 추이에서 클로드와 나란히 비교한다.
+  const report = await runCodexAnalysis(days || 30, (p) => {
     win?.webContents.send('progress', p);
   });
+  saveSnapshot(report, 'codex');
+  return report;
 });
 
 ipcMain.handle('coach', async () => {
@@ -153,7 +156,7 @@ ipcMain.handle('copy', (_e, text: string) => {
 
 ipcMain.handle('history', () => listSnapshots());
 
-ipcMain.handle('snapshot', (_e, date: string) => loadSnapshot(date));
+ipcMain.handle('snapshot', (_e, date: string, source?: 'claude' | 'codex') => loadSnapshot(date, source ?? 'claude'));
 
 // 점수 재전송 없이 순위만 갱신 (현재 분석 결과 기준)
 ipcMain.handle('rank', async () => {
@@ -165,12 +168,13 @@ ipcMain.handle('rank', async () => {
   }
 });
 
-// 홈 시작화면용: 가장 최근 저장본의 점수로 최신 순위를 바로 조회
+// 홈 시작화면용: 가장 최근 저장본의 점수로 최신 순위를 바로 조회.
+// 랭킹은 클로드 점수 기준이라 코덱스 스냅샷은 제외한다.
 ipcMain.handle('latestRank', async () => {
-  const snaps = listSnapshots();
-  if (!snaps.length) return null;
+  const snap = listSnapshots().find((s) => s.source === 'claude');
+  if (!snap) return null;
   try {
-    return toView(await getRank(snaps[0].avgScore));
+    return toView(await getRank(snap.avgScore));
   } catch {
     return null;
   }
@@ -325,13 +329,18 @@ function snapshotsDir(): string {
   return path.join(app.getPath('userData'), 'snapshots');
 }
 
-// 30일이 지나면 원본 jsonl이 지워지므로, 분석 시점의 집계를 남겨 추이를 보존한다
-function saveSnapshot(report: Report): void {
+// 30일이 지나면 원본 jsonl이 지워지므로, 분석 시점의 집계를 남겨 추이를 보존한다.
+// 클로드는 기존대로 `YYYY-MM-DD.json`, 코덱스는 `YYYY-MM-DD.codex.json`로 분리 저장해
+// 같은 날 둘 다 분석해도 덮어쓰지 않고 나란히 보존한다(기존 클로드 저장본·정규식 호환).
+function snapshotFile(date: string, source: 'claude' | 'codex'): string {
+  return path.join(snapshotsDir(), source === 'codex' ? `${date}.codex.json` : `${date}.json`);
+}
+
+function saveSnapshot(report: Report, source: 'claude' | 'codex'): void {
   try {
-    const dir = snapshotsDir();
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(snapshotsDir(), { recursive: true });
     const { samples, ...slim } = report;
-    fs.writeFileSync(path.join(dir, report.generatedAt.slice(0, 10) + '.json'), JSON.stringify(slim, null, 2));
+    fs.writeFileSync(snapshotFile(report.generatedAt.slice(0, 10), source), JSON.stringify(slim, null, 2));
   } catch {
     // 스냅샷 실패는 치명적이지 않다
   }
@@ -341,18 +350,25 @@ function listSnapshots(): SnapshotMeta[] {
   try {
     return fs
       .readdirSync(snapshotsDir())
-      .filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f))
-      .sort()
-      .reverse()
-      .slice(0, 40)
-      .flatMap((f) => {
+      .flatMap((f): { date: string; source: 'claude' | 'codex' }[] => {
+        const codex = /^(\d{4}-\d{2}-\d{2})\.codex\.json$/.exec(f);
+        if (codex) return [{ date: codex[1], source: 'codex' }];
+        const claude = /^(\d{4}-\d{2}-\d{2})\.json$/.exec(f);
+        if (claude) return [{ date: claude[1], source: 'claude' }];
+        return [];
+      })
+      // 최신순. 같은 날이면 클로드를 먼저(랭킹 등 기본 도구가 클로드라 우선 노출)
+      .sort((a, b) => (a.date === b.date ? (a.source === b.source ? 0 : a.source === 'claude' ? -1 : 1) : a.date < b.date ? 1 : -1))
+      .slice(0, 60)
+      .flatMap(({ date, source }) => {
         try {
-          const r = JSON.parse(fs.readFileSync(path.join(snapshotsDir(), f), 'utf8'));
+          const r = JSON.parse(fs.readFileSync(snapshotFile(date, source), 'utf8'));
           const scores: { score: number }[] = Array.isArray(r.scores) ? r.scores : [];
           const avg = scores.length ? scores.reduce((a, s) => a + s.score, 0) / scores.length : 0;
           return [
             {
-              date: f.slice(0, 10),
+              date,
+              source,
               sessions: typeof r.sessions === 'number' ? r.sessions : 0,
               totalTokens: typeof r.totals?.all === 'number' ? r.totals.all : 0,
               avgScore: Math.round(avg),
@@ -367,10 +383,10 @@ function listSnapshots(): SnapshotMeta[] {
   }
 }
 
-function loadSnapshot(date: string): Report | null {
+function loadSnapshot(date: string, source: 'claude' | 'codex'): Report | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   try {
-    return JSON.parse(fs.readFileSync(path.join(snapshotsDir(), date + '.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(snapshotFile(date, source), 'utf8'));
   } catch {
     return null;
   }

@@ -41,6 +41,10 @@ function fmtUSD(n: number): string {
 const PALETTE = ['#5b7fab', '#5f9576', '#c39a63', '#bd7268', '#8079a8', '#5d9498', '#a87e94', '#9a8d5e'];
 const GRAY = '#a8a59c';
 
+// 점수 추이·이전 결과에서 도구를 색으로 구분한다 (클로드=네이비, 코덱스=저채도 슬레이트 블루)
+const SOURCE_COLOR: Record<'claude' | 'codex', string> = { claude: '#3c5374', codex: '#586f84' };
+const SOURCE_LABEL: Record<'claude' | 'codex', string> = { claude: 'Claude', codex: 'Codex' };
+
 // '기타' 류는 항상 회색으로 고정해, 색이 의미를 갖게 한다
 function colorFor(name: string, i: number): string {
   if (name.startsWith('기타')) return GRAY;
@@ -271,6 +275,94 @@ function dailyChartSVG(daily: { date: string; tokens: number }[]): string {
   </svg>`;
 }
 
+// 홈 '점수 여정' 추이선: 분석할 때마다 남은 평균 점수를 시간순(왼→오)으로 잇는다.
+// 클로드·코덱스를 각자 색으로 따로 잇는다(노드·간선 색 = 도구 색). x축은 두 도구가 공유하는 날짜축.
+// y축은 0~100 전체가 아니라 점수 주변으로 줌인하되(작은 변화도 보이게), 좌측에 상·중·하 눈금값을 적어 솔직하게.
+function journeySVG(pts: { date: string; score: number; source: 'claude' | 'codex' }[], selectedIdx: number): string {
+  const n = pts.length;
+  if (n < 2) return '';
+  const W = 724;
+  const H = 100;
+  const padL = 30;
+  const padR = 34;
+  const padT = 12;
+  const padB = 18;
+
+  // 날짜의 합집합을 균등 간격으로 둔다(기존 룩 유지). 각 도구는 자기 날짜 위치에만 점을 찍는다.
+  const allDates = [...new Set(pts.map((p) => p.date))].sort();
+  const dn = allDates.length;
+  const dateIdx = new Map(allDates.map((d, i) => [d, i]));
+  const x = (di: number): number =>
+    dn <= 1 ? padL + (W - padL - padR) / 2 : padL + (di / (dn - 1)) * (W - padL - padR);
+
+  const scores = pts.map((p) => p.score);
+  let lo = Math.max(0, Math.floor((Math.min(...scores) - 8) / 10) * 10);
+  let hi = Math.min(100, Math.ceil((Math.max(...scores) + 8) / 10) * 10);
+  if (hi - lo < 30) {
+    hi = Math.min(100, lo + 30);
+    if (hi - lo < 30) lo = Math.max(0, hi - 30);
+  }
+  const span = hi - lo || 1;
+  const y = (s: number): number => padT + (1 - (s - lo) / span) * (H - padT - padB);
+
+  const mid = Math.round((lo + hi) / 2);
+  const grid = [hi, mid, lo]
+    .map((v) => {
+      const gy = y(v);
+      return `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="var(--line-soft)" stroke-width="1"/>` +
+        `<text x="${(padL - 7).toFixed(1)}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--muted)">${v}</text>`;
+    })
+    .join('');
+
+  // 도구별 간선: 그 도구 점들만 날짜순으로 잇는다(점이 1개뿐이면 선 없이 점만)
+  const lines = (['claude', 'codex'] as const)
+    .map((src) => {
+      const sp = pts.filter((p) => p.source === src).sort((a, b) => a.date.localeCompare(b.date));
+      if (sp.length < 2) return '';
+      const lp = sp.map((p) => `${x(dateIdx.get(p.date)!).toFixed(1)},${y(p.score).toFixed(1)}`);
+      return `<polyline points="${lp.join(' ')}" fill="none" stroke="${SOURCE_COLOR[src]}" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"/>`;
+    })
+    .join('');
+
+  // 점: 도구 색으로. 선택된 점만 채워서 강조한다(누르면 그 날짜 세부 점수가 위 칸에 뜬다). data-idx로 클릭을 잡는다.
+  const dots = pts
+    .map((p, i) => {
+      const cx = x(dateIdx.get(p.date)!).toFixed(1);
+      const cy = y(p.score).toFixed(1);
+      const col = SOURCE_COLOR[p.source];
+      const sel = i === selectedIdx;
+      const r = sel ? 5.6 : 3.4;
+      const ring = sel
+        ? `<circle cx="${cx}" cy="${cy}" r="9" fill="none" stroke="${col}" stroke-width="1.4" opacity="0.28"/>`
+        : '';
+      return ring +
+        `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${sel ? col : '#fff'}" stroke="${col}" stroke-width="2"/>` +
+        `<circle class="jr-hit" data-idx="${i}" cx="${cx}" cy="${cy}" r="12" fill="transparent"><title>${SOURCE_LABEL[p.source]} · ${esc(p.date)} · ${p.score}점</title></circle>`;
+    })
+    .join('');
+
+  const md = (d: string): string => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  const selDate = pts[selectedIdx]?.date;
+  // 각 날짜 밑에 라벨. 날짜가 많아 겹칠 땐 간격이 충분한 것만 남긴다(처음·끝·선택날짜는 항상 표시).
+  let lastLabelX = -Infinity;
+  const dateLabels = allDates
+    .map((d, i) => {
+      const cx = x(i);
+      const sel = d === selDate;
+      const must = i === 0 || i === dn - 1 || sel;
+      if (!must && cx - lastLabelX < 30) return '';
+      lastLabelX = cx;
+      const anchor = i === 0 ? 'start' : i === dn - 1 ? 'end' : 'middle';
+      return `<text x="${cx.toFixed(1)}" y="${H - 7}" text-anchor="${anchor}" font-size="9.5" font-weight="${sel ? 700 : 400}" fill="${sel ? 'var(--ink)' : 'var(--muted)'}">${esc(md(d))}</text>`;
+    })
+    .join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" preserveAspectRatio="xMidYMid meet">
+    ${grid}
+    ${lines}${dots}${dateLabels}
+  </svg>`;
+}
+
 function shortModel(m: string): string {
   const full = m.match(/^claude-([a-z]+)-(\d+)-(\d+)/);
   if (full) return `${full[1]} ${full[2]}.${full[3]}`;
@@ -306,7 +398,7 @@ async function analyze(source: 'claude' | 'codex' = 'claude'): Promise<void> {
     }
     $('progress').classList.add('hidden');
     render(report);
-    if (source === 'claude') void loadHistory(); // 방금 저장된 스냅샷이 목록에 보이게 (Codex는 스냅샷 범위 밖)
+    void loadHistory(); // 방금 저장된 스냅샷이 이전 결과·추이선에 바로 보이게 (클로드·코덱스 모두)
   } catch (e) {
     // 진행 영역을 그대로 두고 에러를 보여준다. 여기서 숨기면 실패가 무반응처럼 보인다
     ($('bar-fill') as HTMLElement).style.width = '0%';
@@ -816,8 +908,7 @@ function showHome(): void {
   $('doc-actions').classList.add('hidden');
   $('home').classList.remove('hidden');
   $('subtitle').classList.remove('hidden');
-  $('subtitle').textContent =
-    '시작하려면 분석하기를 눌러주세요. 최근 30일 Claude Code, Codex의 기록을 읽고 진단합니다.';
+  $('subtitle').textContent = '최근 사용 기록을 기반으로 AI 활용 패턴을 진단합니다.';
 }
 
 // 랭킹 리더보드 팝업: 상위 5위 + (5위 밖이면) ⋯ + 내 행. 표 = 엠블럼·등수·평균·이름.
@@ -875,12 +966,13 @@ function leaderboardHTML(lb: Leaderboard): string {
   return `${cap}<table class="lb"><tbody>${rows}${tail}</tbody></table>${note}`;
 }
 
-// 내 축별 점수: 최신 저장본을 쓴다(리더보드 평균과 같은 시점). 없으면 이번 세션 분석본으로 폴백.
+// 내 축별 점수: 최신 클로드 저장본을 쓴다(랭킹은 클로드 점수 기준). 없으면 이번 세션 분석본으로 폴백.
 async function loadMyScores(): Promise<{ axis: string; score: number }[] | null> {
   try {
     const items = await window.api.history();
-    if (items.length) {
-      const r = await window.api.snapshot(items[0].date);
+    const latestClaude = items.find((it) => it.source === 'claude');
+    if (latestClaude) {
+      const r = await window.api.snapshot(latestClaude.date, 'claude');
       if (r?.scores?.length) return r.scores.map((s) => ({ axis: s.axis, score: s.score }));
     }
   } catch {
@@ -996,36 +1088,187 @@ async function initOnboarding(): Promise<void> {
   void initNickname();
 }
 
-function renderHomeHistory(items: SnapItem[]): void {
-  const wrap = $('home-history');
+// 홈 '점수 여정': 분석할 때마다 남은 평균 점수를 시간순으로 잇는다(왼=처음). 점을 누르면 그날 세부 점수가 위에 뜬다.
+// 리포트로 '들어가는' 건 아래 '이전 결과'가 담당 — 여기 점 클릭은 세부 점수 미리보기만 한다.
+let journeyPts: { date: string; score: number; source: 'claude' | 'codex' }[] = [];
+let journeySelected = -1;
+// 캐시 키는 도구+날짜 (같은 날 클로드·코덱스 저장본이 따로 있을 수 있어서)
+const journeyScoreCache = new Map<string, { axis: string; score: number }[]>();
+const jrKey = (p: { date: string; source: 'claude' | 'codex' }): string => `${p.source}:${p.date}`;
+
+function renderHomeJourney(items: SnapItem[]): void {
+  const el = $('home-journey');
   if (!items.length) {
-    wrap.innerHTML = '<p class="muted">아직 저장된 결과가 없어요. 분석하기를 눌러 시작하세요.</p>';
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    journeyPts = [];
     return;
   }
-  wrap.innerHTML = items
+  el.classList.remove('hidden');
+  // 날짜 오름차순(왼=처음). 같은 날이면 클로드를 먼저.
+  journeyPts = items
+    .map((it) => ({ date: it.date, score: it.avgScore, source: it.source }))
+    .sort((a, b) =>
+      a.date === b.date ? (a.source === b.source ? 0 : a.source === 'claude' ? -1 : 1) : a.date.localeCompare(b.date)
+    );
+  journeySelected = -1;
+
+  // 가장 최근 점을 기본 선택(같은 날 둘 다면 클로드 우선)
+  let last = journeyPts.length - 1;
+  const lastDate = journeyPts[last]?.date;
+  for (let i = 0; i < journeyPts.length; i++) {
+    if (journeyPts[i].date === lastDate && journeyPts[i].source === 'claude') {
+      last = i;
+      break;
+    }
+  }
+
+  // 클로드·코덱스가 둘 다 있을 때만 색 범례를 보여준다(한 도구뿐이면 군더더기)
+  const hasBoth = journeyPts.some((p) => p.source === 'claude') && journeyPts.some((p) => p.source === 'codex');
+  const legend = hasBoth
+    ? `<div class="jr-legend">` +
+      (['claude', 'codex'] as const)
+        .map((s) => `<span class="jr-leg"><i style="background:${SOURCE_COLOR[s]}"></i>${SOURCE_LABEL[s]}</span>`)
+        .join('') +
+      `</div>`
+    : '';
+
+  // 분석 1번뿐이면 추이선 없이 그날 세부 점수만
+  if (journeyPts.length < 2) {
+    el.innerHTML = `
+      <div class="jr-card">
+        <div class="jr-head"><span class="jr-title">점수 추이</span><span class="jr-cap">1번 분석</span></div>
+        <div id="jr-detail" class="jr-detail"></div>
+        <p class="jr-note">두 번째 분석부터 변화 추이가 표시됩니다</p>
+      </div>`;
+    void selectJourneyNode(last);
+    return;
+  }
+
+  const peak = Math.max(...journeyPts.map((p) => p.score));
+  el.innerHTML = `
+    <div class="jr-card">
+      <div class="jr-head">
+        <span class="jr-title">점수 추이 <span class="jr-hint">각 지점을 선택하면 해당 날짜의 세부 점수를 확인할 수 있습니다</span></span>
+        <span class="jr-cap">${journeyPts.length}번 분석 · 최고 ${peak}점</span>
+      </div>
+      <div id="jr-detail" class="jr-detail"></div>
+      <div id="jr-chart" class="jr-chart">${journeySVG(journeyPts, last)}</div>
+      ${legend}
+    </div>`;
+  void selectJourneyNode(last); // 기본은 가장 최근 점
+}
+
+// 점 선택: 그 점을 강조하고, 그날 저장본의 축별 점수를 불러와 위 세부 칸에 그린다(한 번 부른 건 캐시).
+async function selectJourneyNode(idx: number): Promise<void> {
+  if (idx < 0 || idx >= journeyPts.length) return;
+  journeySelected = idx;
+  const chart = document.getElementById('jr-chart');
+  if (chart) chart.innerHTML = journeySVG(journeyPts, idx);
+  const detail = document.getElementById('jr-detail');
+  if (!detail) return;
+  const pt = journeyPts[idx];
+  const { date, score: avg, source } = pt;
+  const key = jrKey(pt);
+  let scores = journeyScoreCache.get(key);
+  if (!scores) {
+    detail.classList.add('jr-d-loading');
+    try {
+      const r = await window.api.snapshot(date, source);
+      scores = (r?.scores ?? []).map((s) => ({ axis: s.axis, score: s.score }));
+    } catch {
+      scores = [];
+    }
+    journeyScoreCache.set(key, scores);
+    detail.classList.remove('jr-d-loading');
+    if (journeySelected !== idx) return; // 그새 다른 점을 눌렀으면 덮어쓰지 않는다
+  }
+  renderJourneyDetail(detail, date, avg, scores, source);
+}
+
+// 세부 칸: 왼쪽에 그날 평균(크게) + 도구 배지, 오른쪽에 축별 세부지표(작게·게이지 없이 이름·점수만). 리포트의 종합판정 축과 같은 값.
+function renderJourneyDetail(
+  el: HTMLElement,
+  date: string,
+  avg: number,
+  scores: { axis: string; score: number }[],
+  source: 'claude' | 'codex'
+): void {
+  const left =
+    `<div class="jr-d-avg">` +
+    `<span class="jr-d-date">${esc(date)} <span class="snap-src ${source}">${SOURCE_LABEL[source]}</span></span>` +
+    `<span class="jr-d-avg-row"><span class="jr-d-avg-num">${avg}</span><span class="jr-d-avg-unit">점</span></span>` +
+    `<span class="jr-d-avg-cap">평균 점수</span>` +
+    `</div>`;
+  if (!scores.length) {
+    el.innerHTML = `<div class="jr-d-row">${left}<p class="jr-d-empty">이 저장본에는 세부 점수가 없습니다</p></div>`;
+    return;
+  }
+  const cells = scores
+    .map(
+      (s) =>
+        `<span class="jr-d-ax"><span class="jr-d-ax-name">${esc(s.axis)}</span><b class="jr-d-ax-score">${s.score}</b></span>`
+    )
+    .join('');
+  el.innerHTML = `<div class="jr-d-row">${left}<div class="jr-d-axes">${cells}</div></div>`;
+}
+
+// 이전 결과: 기본 3개만 보여주고 나머지는 '⋯ 더 보기'로 펼친다.
+let historyItems: SnapItem[] = [];
+let historyExpanded = false;
+const HISTORY_COLLAPSED = 3;
+
+function renderHomeHistory(items: SnapItem[]): void {
+  historyItems = items;
+  const wrap = $('home-history');
+  if (!items.length) {
+    wrap.innerHTML =
+      '<p class="home-hist-empty">아직 발급된 리포트가 없습니다.<br/>위에서 분석을 실행하면 결과가 이곳에 기록됩니다.</p>';
+    return;
+  }
+  const shown = historyExpanded ? items : items.slice(0, HISTORY_COLLAPSED);
+  const head =
+    `<div class="home-hist-head">` +
+    `<span class="hh-src">도구</span>` +
+    `<span class="hh-date">분석일</span>` +
+    `<span class="hh-avg">평균</span>` +
+    `<span class="hh-sess">세션</span>` +
+    `<span class="hh-tok">토큰</span>` +
+    `</div>`;
+  const rows = shown
     .map(
       (it) => `
-      <button class="home-snap" data-date="${esc(it.date)}">
+      <button class="home-snap" data-date="${esc(it.date)}" data-source="${it.source}">
+        <span class="snap-src ${it.source}">${SOURCE_LABEL[it.source]}</span>
         <span class="home-snap-date">${esc(it.date)}</span>
-        <span class="home-snap-meta">평균 ${it.avgScore}점 · 세션 ${it.sessions.toLocaleString()}개 · 토큰 ${fmtTokens(it.totalTokens)}</span>
+        <span class="home-snap-avg">${it.avgScore}<span class="hs-unit">점</span></span>
+        <span class="home-snap-sess">${it.sessions.toLocaleString()}<span class="hs-unit">개</span></span>
+        <span class="home-snap-tok">${esc(fmtTokens(it.totalTokens))}</span>
       </button>`
     )
     .join('');
+  const rest = items.length - HISTORY_COLLAPSED;
+  const more =
+    !historyExpanded && rest > 0
+      ? `<button class="home-more" id="home-more">⋯ ${rest}개 더 보기</button>`
+      : '';
+  wrap.innerHTML = head + rows + more;
 }
 
 async function loadHistory(): Promise<void> {
   try {
     const items = await window.api.history();
+    renderHomeJourney(items);
     renderHomeHistory(items);
   } catch {
     // 목록 실패는 치명적이지 않다
   }
 }
 
-async function viewSnapshot(date: string): Promise<void> {
-  const r = await window.api.snapshot(date);
+async function viewSnapshot(date: string, source: 'claude' | 'codex' = 'claude'): Promise<void> {
+  const r = await window.api.snapshot(date, source);
   if (!r) return;
-  currentSource = 'claude';
+  currentSource = source;
   render(r, date);
 }
 
@@ -1034,10 +1277,22 @@ $('btn-home-codex').addEventListener('click', () => void analyze('codex'));
 $('btn-home-ranking').addEventListener('click', () => void openRankModal());
 $('app-title').addEventListener('click', () => showHome());
 $('btn-back-home').addEventListener('click', () => showHome());
-// 시작 화면의 이전 결과 카드 클릭 → 그 저장본 열기
+// 시작 화면의 이전 결과: '⋯ 더 보기'면 펼치고, 카드면 그 저장본 열기
 $('home-history').addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('.home-more')) {
+    historyExpanded = true;
+    renderHomeHistory(historyItems);
+    return;
+  }
   const card = (e.target as HTMLElement).closest('.home-snap') as HTMLElement | null;
-  if (card?.dataset.date) void viewSnapshot(card.dataset.date);
+  if (card?.dataset.date) void viewSnapshot(card.dataset.date, (card.dataset.source as 'claude' | 'codex') ?? 'claude');
+});
+// 점수 여정 추이선의 점 클릭 → 그날 세부 점수만 위에 표시(리포트로 들어가는 건 아래 '이전 결과'가 담당)
+$('home-journey').addEventListener('click', (e) => {
+  const hit = (e.target as Element).closest('.jr-hit');
+  if (!hit) return;
+  const idx = Number(hit.getAttribute('data-idx'));
+  if (!Number.isNaN(idx)) void selectJourneyNode(idx);
 });
 // 축의 '세부 보기' 버튼 → 세부 수치 팝업
 $('axes').addEventListener('click', (e) => {

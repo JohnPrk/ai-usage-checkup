@@ -13,3 +13,5 @@ release/
 /style.css
 # MAS 서명용 provisioning profile(바이너리·서명 자산). 로컬 빌드엔 남고 public 레포엔 올리지 않는다.
 build/embedded.provisionprofile
+# 검증용 임시 자료(스펙 PDF 등). 레포에 올리지 않는다.
+tmp/

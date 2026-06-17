@@ -8,7 +8,7 @@ declare global {
       coach(): Promise<Coaching>;
       copy(text: string): Promise<boolean>;
       history(): Promise<SnapshotMeta[]>;
-      snapshot(date: string): Promise<Report | null>;
+      snapshot(date: string, source?: 'claude' | 'codex'): Promise<Report | null>;
       rank(): Promise<RankView | null>;
       latestRank(): Promise<RankView | null>;
       leaderboard(): Promise<LeaderboardView | null>;

@@ -8,14 +8,8 @@ export interface ScannedCodexFile {
   size: number;
 }
 
-// Codex 세션 로그 위치. 표준은 ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl.
-// 검증·개발 시 CODEX_SESSIONS_DIR 로 다른 폴더(예: ~/Downloads/05)를 가리킬 수 있다.
+// Codex 세션 로그 위치. ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 만 읽는다.
 export function codexSessionDirs(): string[] {
-  const override = process.env.CODEX_SESSIONS_DIR;
-  if (override) {
-    const p = override.startsWith('~') ? path.join(os.homedir(), override.slice(1)) : override;
-    return isDir(p) ? [p] : [];
-  }
   const home = os.homedir();
   return [path.join(home, '.codex', 'sessions')].filter(isDir);
 }

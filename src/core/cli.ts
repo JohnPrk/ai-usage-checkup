@@ -1,7 +1,7 @@
 import { getProvider } from './providers';
 
 // 스모크 테스트용 CLI: node dist/core/cli.js --days 30 [--codex]
-// Codex 검증: CODEX_SESSIONS_DIR=~/Downloads/05 node dist/core/cli.js --codex --days 60
+// Codex 검증: node dist/core/cli.js --codex --days 60  (항상 ~/.codex/sessions 만 읽음)
 const i = process.argv.indexOf('--days');
 const days = i >= 0 ? Number(process.argv[i + 1]) || 30 : 30;
 const provider = getProvider(process.argv.includes('--codex') ? 'codex' : 'claude');

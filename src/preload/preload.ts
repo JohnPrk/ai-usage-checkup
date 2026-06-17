@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   coach: () => ipcRenderer.invoke('coach'),
   copy: (text: string) => ipcRenderer.invoke('copy', text),
   history: () => ipcRenderer.invoke('history'),
-  snapshot: (date: string) => ipcRenderer.invoke('snapshot', date),
+  snapshot: (date: string, source: 'claude' | 'codex' = 'claude') => ipcRenderer.invoke('snapshot', date, source),
   rank: () => ipcRenderer.invoke('rank'),
   latestRank: () => ipcRenderer.invoke('latestRank'),
   leaderboard: () => ipcRenderer.invoke('leaderboard'),

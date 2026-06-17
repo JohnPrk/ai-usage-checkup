@@ -1,7 +1,7 @@
 {
   "name": "ai-usage-checkup",
   "productName": "AI 리포트",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Claude Code 사용 패턴 분석 + opus 코칭 데스크탑 앱",
   "main": "dist/main/main.js",
   "scripts": {
@@ -32,7 +32,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true,
-      "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}"
+      "artifactName": "AI.Usage.Checkup-${version}-${arch}.${ext}",
+      "extendInfo": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "mas": {
       "type": "distribution",

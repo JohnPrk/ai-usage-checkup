@@ -1,11 +1,13 @@
 :root {
-  --bg: #f2f1ed;
+  --bg: #f5f4f0;
   --paper: #ffffff;
   --ink: #1d1d1f;
-  --muted: #6f6e68;
-  --line: #e4e2da;
-  --line-soft: #efede8;
+  --muted: #696863;
+  --line: #dfddd5;
+  --line-soft: #ece9e2;
   --bar: #3c5374;
+  --codex: #586f84;
+  --rank: #62666b;
   --good: #25683f;
   --warn: #9c5a06;
   --bad: #a63434;
@@ -19,28 +21,30 @@ body {
   color: var(--ink);
   font-size: 13.5px;
   line-height: 1.65;
-  padding: 28px 16px 48px;
+  padding: 24px 16px 36px;
 }
 
 .sheet {
-  max-width: 820px;
+  max-width: 860px;
   margin: 0 auto;
   background: var(--paper);
   border: 1px solid var(--line);
-  padding: 38px 48px 32px;
-  /* 창을 거의 채워 아래 빈 공간을 없앤다(홈에선 콘텐츠를 세로 중앙으로). 리포트처럼 길면 자연히 늘어남 */
-  min-height: calc(100vh - 80px);
+  border-radius: 2px;
+  padding: 34px 42px 28px;
+  min-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
 }
 
-h1 { font-size: 27px; font-weight: 700; letter-spacing: -0.4px; }
+h1 { font-size: 27px; font-weight: 750; letter-spacing: -0.4px; line-height: 1.15; }
 
 .doc-head {
   display: flex;
-  flex-direction: column;
-  padding-bottom: 14px;
-  border-bottom: 2px solid var(--ink);
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
 }
 .doc-head #subtitle { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
 /* 제목 아래, 오른쪽 정렬로 내려 붙인다 (분석일·세션·닉네임 3줄 균등 간격) */
@@ -372,31 +376,177 @@ select { color: var(--muted); max-width: 170px; }
 .track { height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
 .fill { height: 100%; background: var(--bar); border-radius: 3px; }
 
-/* 시작 페이지 */
+/* 리포트 센터 홈 */
 #app-title { cursor: pointer; }
-/* 홈은 헤더 아래 남은 높이를 채우고 콘텐츠를 세로 가운데로 (창이 길어도 안 휑하게). 결과가 많아지면 자연히 위로 정렬 */
-#home { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
-.home-hero { text-align: center; padding: 6px 0 30px; border-bottom: 1px solid var(--line-soft); margin-bottom: 26px; }
-.home-cta-group { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.home-cta {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 15px 40px; border-radius: 9px; min-width: 320px;
+#home {
+  --home-section-gap: 22px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--home-section-gap);
+  padding-top: 20px;
 }
-.home-cta-title { font-size: 15px; font-weight: 700; line-height: 1.2; }
-.home-cta-sub { font-size: 11.5px; font-weight: 400; line-height: 1.2; opacity: 0.72; }
-.home-cta-alt { background: #fff; color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
-.home-cta-alt:hover { background: #f4f3ef; }
-.home-sec-title { font-size: 13px; font-weight: 700; margin-bottom: 12px; }
-.home-history { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.home-main { display: flex; flex-direction: column; gap: var(--home-section-gap); }
+
+.home-actions-block { display: flex; flex-direction: column; gap: 9px; }
+.home-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
+}
+.home-block-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+.home-block-note {
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  line-height: 1.45;
+  background: #fbfaf7;
+}
+
+.home-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.home-act {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 58px;
+  padding: 11px 12px 11px 15px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.home-act::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--act-color);
+}
+.home-act:hover { background: #fbfaf7; border-color: var(--act-color); }
+.act-claude { --act-color: var(--bar); }
+.act-codex { --act-color: var(--codex); }
+.act-rank { --act-color: var(--rank); }
+.act-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.act-main { font-size: 14.5px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1.25; }
+.act-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  background: #fbfaf7;
+  font-size: 12px;
+  line-height: 1;
+  transition: border-color 0.12s, color 0.12s, transform 0.12s;
+}
+.home-act:hover .act-go { color: var(--act-color); border-color: var(--act-color); transform: translateX(1px); }
+
+/* 이전 결과: 최근 발급 리포트 장부식 표. 홈의 공통 gap으로 앞뒤 간격을 맞춘다 */
+.home-history-block { display: flex; flex-direction: column; margin-top: 0; padding-top: 0; }
+.home-sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
+.home-sec-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+.home-sec-cap { font-size: 11.5px; color: var(--muted); }
+.home-history { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--paper); }
+/* 헤더·행이 동일한 그리드 템플릿을 공유 → 헤더와 값이 정확히 같은 축에 놓인다 */
+.home-hist-head, .home-snap {
+  display: grid;
+  grid-template-columns: 120px minmax(180px, 1fr) 120px 120px 120px;
+  align-items: center; gap: 6px;
+}
+.home-hist-head {
+  padding: 8px 16px; background: #fbfaf7;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  text-align: center;
+}
 .home-snap {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-  width: 100%; text-align: left;
-  padding: 13px 16px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--paper);
+  width: 100%; text-align: center;
+  padding: 11px 16px; border: none; border-radius: 0;
+  border-bottom: 1px solid var(--line-soft); background: var(--paper);
 }
-.home-snap:hover { border-color: var(--bar); background: #fafaf8; }
-.home-snap-date { font-weight: 700; font-size: 13px; color: var(--ink); }
-.home-snap-meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.home-snap:last-child { border-bottom: none; }
+.home-snap:hover { background: #faf9f6; }
+.home-snap-date { font-weight: 600; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.home-snap-avg, .home-snap-sess, .home-snap-tok {
+  text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.home-snap-avg { font-size: 13px; font-weight: 700; color: var(--ink); }
+.home-snap-sess, .home-snap-tok { font-size: 12.5px; color: var(--muted); }
+.hs-unit { font-size: 10.5px; font-weight: 400; color: var(--muted); margin-left: 1px; }
+.home-hist-empty { padding: 28px 16px; text-align: center; font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+/* 도구 배지: 클로드/코덱스를 색으로 구분 (추이선 색과 동일). 칸 중앙에 일정 너비로 고정 → 행마다 흔들리지 않게 */
+.snap-src { display: inline-flex; align-items: center; justify-content: center; flex: none; font-size: 10px; font-weight: 700; line-height: 1; padding: 3px 8px; border-radius: 4px; color: #fff; letter-spacing: 0.02em; vertical-align: middle; }
+.snap-src.claude { background: #3c5374; }
+.snap-src.codex { background: var(--codex); }
+.home-snap .snap-src { justify-self: center; min-width: 64px; }
+/* 이전 결과 '⋯ 더 보기': 표 하단에 붙는 footer row (헤더와 같은 톤으로 마무리) */
+.home-more {
+  width: 100%; text-align: center; padding: 10px 12px;
+  border: none; border-top: 1px solid var(--line); border-radius: 0;
+  background: #fbfaf7; color: var(--muted); font-size: 12px; font-weight: 650;
+}
+.home-more:hover { background: #f3f1ec; color: var(--ink); }
+
+/* 안내 푸터: 남은 세로 공간을 받아 문서 하단에 안착한다 */
+.home-foot {
+  margin-top: auto; padding-top: 13px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11px; color: var(--muted); text-align: center;
+}
+
+/* 점수 추이 (홈, 인바디식 추이) — 오른쪽 칸 전체 폭 */
+.home-journey { width: 100%; margin: 0; }
+.jr-card { border: 1px solid var(--line); border-radius: 7px; background: var(--paper); padding: 12px 16px 11px; }
+.jr-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
+.jr-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+.jr-hint { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.jr-cap { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 점을 누르면 위에 뜨는 그날 점수: 왼쪽 평균(크게), 오른쪽 축별 세부지표(작게, 게이지 없음) */
+.jr-detail { min-height: 52px; padding: 1px 2px 7px; transition: opacity 0.12s ease; }
+.jr-detail.jr-d-loading { opacity: 0.45; }
+.jr-d-row { display: flex; align-items: center; gap: 22px; }
+.jr-d-avg { display: flex; flex-direction: column; gap: 1px; flex: none; min-width: 86px; }
+.jr-d-date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.jr-d-avg-row { display: flex; align-items: baseline; gap: 3px; }
+/* 메인 버튼이 주인공이 되도록 톤다운(추이 카드는 버튼 아래 보조 역할) */
+.jr-d-avg-num { font-size: 23px; font-weight: 800; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.jr-d-avg-unit { font-size: 13px; font-weight: 700; color: var(--ink); }
+.jr-d-avg-cap { font-size: 11.5px; color: var(--muted); }
+.jr-d-axes { flex: 1; display: grid; grid-template-columns: repeat(3, max-content); justify-content: end; gap: 6px 16px; align-content: center; }
+.jr-d-ax { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 11px; }
+.jr-d-ax-name { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-d-ax-score { font-size: 12px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; flex: none; }
+.jr-d-empty { font-size: 12px; color: var(--muted); }
+.jr-chart { margin-top: 2px; }
+.jr-chart svg { width: 100%; height: auto; display: block; }
+.jr-hit { cursor: pointer; }
+.jr-note { text-align: center; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+/* 추이선 색 범례: 클로드·코덱스 둘 다 있을 때만 (점·선 색과 동일) */
+.jr-legend { display: flex; justify-content: center; gap: 16px; margin-top: 7px; }
+.jr-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.jr-leg i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+/* 추이 세부 칸의 날짜 옆 배지는 살짝 작게 */
+.jr-d-date .snap-src { font-size: 9px; padding: 2px 5px; margin-left: 2px; }
 .axis-row .val {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -720,7 +870,16 @@ select { color: var(--muted); max-width: 170px; }
 
 @media (max-width: 760px) {
   .sheet { padding: 28px 22px; }
-  .cols2, .cols3, .judge-grid, .home-axes { grid-template-columns: 1fr; }
+  #home { --home-section-gap: 20px; }
+  .cols2, .cols3, .judge-grid { grid-template-columns: 1fr; }
   .stats { flex-wrap: wrap; }
   .stat { flex-basis: 45%; border-left: none; padding-left: 0; margin-bottom: 8px; }
+  /* 좁은 창: 액션 패널을 한 열로 (모바일은 액션 영역이 위, 추이·이력이 한 열로 이어짐) */
+  .home-actions { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  /* 아주 좁은 창: 이력 표의 토큰 칸을 접어 4열로 */
+  .home-hist-head, .home-snap { grid-template-columns: 50px 1fr 56px 70px; gap: 8px; }
+  .home-hist-head .hh-tok, .home-snap-tok { display: none; }
 }

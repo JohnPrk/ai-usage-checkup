@@ -20,27 +20,49 @@
     </header>
 
     <section id="home" class="hidden">
-      <div class="home-hero">
-        <div class="home-cta-group">
-          <button id="btn-home-analyze" class="primary home-cta">
-            <span class="home-cta-title">클로드 분석하기</span>
-            <span class="home-cta-sub">최근 30일 Claude Code 기록을 읽고 진단</span>
-          </button>
-          <button id="btn-home-codex" class="home-cta home-cta-alt">
-            <span class="home-cta-title">코덱스 분석하기</span>
-            <span class="home-cta-sub">최근 Codex(OpenAI) 기록을 읽고 진단</span>
-          </button>
-          <button id="btn-home-ranking" class="home-cta home-cta-alt">
-            <span class="home-cta-title">랭킹</span>
-            <span class="home-cta-sub">다른 사람들과 내 점수 비교</span>
-          </button>
+      <div class="home-main">
+        <div class="home-actions-block">
+          <div class="home-block-head">
+            <h2 class="home-block-title">리포트 작업</h2>
+            <span class="home-block-note">로컬 분석</span>
+          </div>
+          <div class="home-actions">
+            <button id="btn-home-analyze" class="home-act act-claude">
+              <span class="act-text">
+                <span class="act-main">Claude Code</span>
+                <span class="act-sub">최근 30일</span>
+              </span>
+              <span class="act-go" aria-hidden="true">→</span>
+            </button>
+            <button id="btn-home-codex" class="home-act act-codex">
+              <span class="act-text">
+                <span class="act-main">Codex</span>
+                <span class="act-sub">최근 90일</span>
+              </span>
+              <span class="act-go" aria-hidden="true">→</span>
+            </button>
+            <button id="btn-home-ranking" class="home-act act-rank">
+              <span class="act-text">
+                <span class="act-main">랭킹</span>
+                <span class="act-sub">점수 비교</span>
+              </span>
+              <span class="act-go" aria-hidden="true">→</span>
+            </button>
+          </div>
         </div>
+
+        <div id="home-journey" class="home-journey hidden"></div>
       </div>
 
       <div class="home-history-block">
-        <h3 class="home-sec-title">이전 결과 <span class="hint">클릭하면 그날 저장본을 열어요</span></h3>
+        <div class="home-sec-head">
+          <h3 class="home-sec-title">이전 결과</h3>
+          <span class="home-sec-cap">선택한 날짜의 저장본을 열 수 있습니다</span>
+        </div>
         <div id="home-history" class="home-history"></div>
       </div>
+
+      <p class="home-foot">분석은 이 컴퓨터 안에서만 실행되며, 사용 기록은 외부로 전송되지 않습니다.</p>
     </section>
 
     <section id="progress" class="hidden">

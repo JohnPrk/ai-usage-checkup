@@ -244,6 +244,7 @@ export interface SnapshotMeta {
   sessions: number;
   totalTokens: number;
   avgScore: number;
+  source: 'claude' | 'codex'; // 어떤 도구의 분석본인지 (이전 결과·추이선에서 구분)
 }
 
 export interface Coaching {
