@@ -28,7 +28,7 @@ done
 # 실행에서 캐싱한 style.css 를 그려서 CSS/렌더러 변경이 .app 에 안 보인다 (2026-06-15 실측).
 node scripts/clear-render-cache.mjs
 
-echo "[2/5] productName NFD 정규화 (DMG/설치본 SIGTRAP 방지)"
+echo "[2/5] 앱 이름 호환성 확인"
 node scripts/ensure-nfd.mjs
 
 echo "[3/5] TypeScript 빌드 + 정적 파일 복사"

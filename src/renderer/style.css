@@ -207,6 +207,13 @@ select { color: var(--muted); max-width: 170px; }
 .nick-skip { background: none; border: 1px solid var(--line); color: var(--muted); padding: 9px 16px; border-radius: 7px; font-weight: 600; }
 .nick-skip:hover { background: #f4f3ef; color: var(--ink); }
 
+/* 전체 순위 업로드 동의 모달 */
+.consent-lead { color: var(--ink); font-size: 14px; line-height: 1.62; margin: 6px 0 10px; }
+.consent-note { color: var(--muted); font-size: 12.5px; line-height: 1.6; margin: 0 0 14px; }
+.consent-lead b, .consent-note b { color: var(--ink); font-weight: 700; }
+.consent-privacy { color: var(--muted); font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+.consent-privacy a { color: var(--bar); text-decoration: underline; }
+
 .info-badge {
   display: inline-flex;
   align-items: center;
@@ -852,10 +859,34 @@ select { color: var(--muted); max-width: 170px; }
 
 .footnote { font-size: 11px; color: var(--muted); padding-top: 14px; }
 
-/* 리포트 맨 아래: 메인으로 돌아가기 (가운데, 담백하게) */
-.report-foot { display: flex; justify-content: center; padding-top: 26px; }
-.back-home { font-size: 13px; color: var(--muted); padding: 9px 20px; border-radius: 7px; }
+/* 리포트 맨 아래: PDF 저장 + 메인으로 돌아가기 */
+.report-foot { display: flex; justify-content: center; align-items: center; gap: 8px; padding-top: 26px; }
+.save-pdf, .back-home { width: 154px; font-size: 13px; padding: 9px 18px; border-radius: 7px; }
+.save-pdf { color: var(--ink); font-weight: 600; }
+.save-pdf:hover { border-color: var(--bar); color: var(--bar); background: #fff; }
+.back-home { color: var(--muted); }
 .back-home:hover { color: var(--ink); background: #f6f5f1; }
+body.pdf-exporting .report-foot,
+body.pdf-exporting .modal {
+  display: none !important;
+}
+
+@media print {
+  .judge-grid,
+  .stats,
+  .usage-row,
+  .ptypes-section,
+  .inv-col,
+  .footnote {
+    break-inside: avoid;
+  }
+
+  .sec-title,
+  .sub-title,
+  .chart-head {
+    break-after: avoid;
+  }
+}
 
 #onboarding { padding: 24px 0; }
 #onboarding ol { padding-left: 20px; margin-top: 10px; }

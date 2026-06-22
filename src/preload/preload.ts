@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('api', {
   analyzeCodex: (days: number) => ipcRenderer.invoke('analyzeCodex', days),
   coach: () => ipcRenderer.invoke('coach'),
   copy: (text: string) => ipcRenderer.invoke('copy', text),
+  saveReportPdf: (suggestedName: string, layout?: { width: number; height: number }) =>
+    ipcRenderer.invoke('saveReportPdf', suggestedName, layout),
   history: () => ipcRenderer.invoke('history'),
   snapshot: (date: string, source: 'claude' | 'codex' = 'claude') => ipcRenderer.invoke('snapshot', date, source),
   rank: () => ipcRenderer.invoke('rank'),
@@ -12,6 +14,9 @@ contextBridge.exposeInMainWorld('api', {
   leaderboard: () => ipcRenderer.invoke('leaderboard'),
   getNickname: () => ipcRenderer.invoke('getNickname'),
   setNickname: (name: string) => ipcRenderer.invoke('setNickname', name),
+  getRankConsent: () => ipcRenderer.invoke('getRankConsent'),
+  setRankConsent: (agree: boolean) => ipcRenderer.invoke('setRankConsent', agree),
+  submitCurrent: () => ipcRenderer.invoke('submitCurrent'),
   chooseClaudeDir: () => ipcRenderer.invoke('chooseClaudeDir'),
   claudeAccess: () => ipcRenderer.invoke('claudeAccess'),
   onProgress: (cb: (p: unknown) => void) => {

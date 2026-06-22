@@ -9,5 +9,5 @@ const nfd = pkg.productName.normalize('NFD');
 if (pkg.productName !== nfd) {
   pkg.productName = nfd;
   fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
-  console.log('[ensure-nfd] productName을 NFD로 정규화했다.');
+  console.log('[app-name] 앱 이름 호환성을 맞췄다.');
 }

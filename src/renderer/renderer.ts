@@ -16,6 +16,8 @@ let running = false;
 let currentSource: 'claude' | 'codex' = 'claude';
 // 세부 수치 팝업이 참조할 현재 리포트 (구조화된 metrics를 data-attribute로 넘기기 어려워 인덱스로 조회)
 let modalReport: UsageReport | null = null;
+let currentReportDate: string | null = null;
+let savingPdf = false;
 
 function esc(s: string): string {
   return s
@@ -379,6 +381,9 @@ window.api.onProgress((p) => {
 
 async function analyze(source: 'claude' | 'codex' = 'claude'): Promise<void> {
   if (running) return;
+  // 클로드 분석만 점수를 서버(전체 순위)에 올린다. 아직 동의 여부를 묻지 않았다면
+  // 업로드 전에 동의 모달을 먼저 띄운다(동의/거절과 무관하게 분석은 이어서 진행).
+  if (source === 'claude' && rankConsent === 'unset') await askRankConsent();
   running = true;
   currentSource = source;
   $('report').classList.add('hidden');
@@ -411,6 +416,7 @@ async function analyze(source: 'claude' | 'codex' = 'claude'): Promise<void> {
 
 function render(r: UsageReport, snapshotDate?: string): void {
   modalReport = r;
+  currentReportDate = snapshotDate ?? r.generatedAt.slice(0, 10);
   if (r.sessions === 0) {
     renderOnboarding(r);
     return;
@@ -445,6 +451,7 @@ function render(r: UsageReport, snapshotDate?: string): void {
 }
 
 function renderOnboarding(r: UsageReport): void {
+  currentReportDate = null;
   $('report').classList.add('hidden');
   $('home').classList.add('hidden');
   $('doc-actions').classList.remove('hidden');
@@ -902,6 +909,7 @@ type SnapItem = Awaited<ReturnType<typeof window.api.history>>[number];
 
 // 분석 결과 대신 시작 화면을 보여준다 (앱 첫 진입, 제목 클릭)
 function showHome(): void {
+  currentReportDate = null;
   $('report').classList.add('hidden');
   $('onboarding').classList.add('hidden');
   $('progress').classList.add('hidden');
@@ -909,6 +917,66 @@ function showHome(): void {
   $('home').classList.remove('hidden');
   $('subtitle').classList.remove('hidden');
   $('subtitle').textContent = '최근 사용 기록을 기반으로 AI 활용 패턴을 진단합니다.';
+}
+
+function currentPdfName(): string {
+  const date = currentReportDate ?? new Date().toISOString().slice(0, 10);
+  return `AI 리포트-${SOURCE_LABEL[currentSource]}-${date}.pdf`.normalize('NFC');
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function measurePdfLayout(): Promise<{ width: number; height: number }> {
+  document.body.classList.add('pdf-exporting');
+  await nextFrame();
+  await nextFrame();
+
+  const html = document.documentElement;
+  const body = document.body;
+  const width = Math.ceil(Math.max(html.scrollWidth, body.scrollWidth, window.innerWidth));
+
+  return {
+    width,
+    height: Math.ceil(width * Math.SQRT2),
+  };
+}
+
+async function saveCurrentReportPdf(): Promise<void> {
+  if (savingPdf || !modalReport) return;
+  const btn = $('btn-save-pdf') as HTMLButtonElement;
+  const original = btn.textContent || 'PDF 저장';
+  savingPdf = true;
+  btn.disabled = true;
+  btn.textContent = '저장 중...';
+
+  let delay = 0;
+  try {
+    const layout = await measurePdfLayout();
+    const res = await window.api.saveReportPdf(currentPdfName(), layout);
+    if (res.ok) {
+      btn.textContent = '저장 완료';
+      delay = 1300;
+    } else if (res.canceled) {
+      btn.textContent = original;
+    } else {
+      console.error('[pdf] save failed', res.error);
+      btn.textContent = '저장 실패';
+      delay = 1600;
+    }
+  } catch (e) {
+    console.error('[pdf] save failed', e);
+    btn.textContent = '저장 실패';
+    delay = 1600;
+  } finally {
+    document.body.classList.remove('pdf-exporting');
+    window.setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = original;
+      savingPdf = false;
+    }, delay);
+  }
 }
 
 // 랭킹 리더보드 팝업: 상위 5위 + (5위 밖이면) ⋯ + 내 행. 표 = 엠블럼·등수·평균·이름.
@@ -1014,6 +1082,37 @@ async function openScoreDetail(): Promise<void> {
 let myNick = '';
 let nickFirstRun = false;
 
+// ── 전체 순위 업로드 동의 ──────────────────────────────────────────
+// App Store 5.1.2(i): 점수를 서버(전체 순위)에 올리기 전에 명시적 동의를 받는다.
+// 'unset'이면 첫 클로드 분석 직전에 동의 모달을 띄워 사용자가 직접 선택하게 한다.
+let rankConsent: 'yes' | 'no' | 'unset' = 'unset';
+let consentResolve: ((agree: boolean) => void) | null = null;
+
+// 동의 모달을 띄우고, 사용자가 버튼을 누를 때까지 기다린다(동의/거절 모두 분석은 진행).
+function askRankConsent(): Promise<boolean> {
+  const input = $('consent-nick') as HTMLInputElement;
+  input.value = myNick;
+  $('consent-modal').classList.remove('hidden');
+  setTimeout(() => input.focus(), 30);
+  return new Promise((resolve) => {
+    consentResolve = resolve;
+  });
+}
+
+// 동의/거절 확정: 서버 동의 플래그를 저장하고, 동의면 닉네임도 함께 저장한다.
+async function decideRankConsent(agree: boolean): Promise<void> {
+  rankConsent = await window.api.setRankConsent(agree);
+  if (agree) {
+    const input = $('consent-nick') as HTMLInputElement;
+    myNick = await window.api.setNickname(input.value.trim().slice(0, 24));
+    updateNickChip();
+  }
+  $('consent-modal').classList.add('hidden');
+  const r = consentResolve;
+  consentResolve = null;
+  if (r) r(agree);
+}
+
 // 보고서 우상단 칩에 현재 닉네임을 반영 (없으면 '닉네임 설정' 안내)
 function updateNickChip(): void {
   const chip = $('nick-chip');
@@ -1047,12 +1146,13 @@ function dismissNick(): void {
 // 앱 시작 시: 저장된 닉네임을 칩에 반영하고, 한 번도 안 정했으면 첫 실행 팝업을 띄운다
 async function initNickname(): Promise<void> {
   try {
-    const n = await window.api.getNickname();
+    const [n, consent] = await Promise.all([window.api.getNickname(), window.api.getRankConsent()]);
     myNick = n.name;
+    rankConsent = consent;
     updateNickChip();
-    if (!n.chosen) openNickModal(true);
+    // 시작 화면에서 닉네임을 먼저 묻지 않는다. 닉네임·동의는 첫 클로드 분석 직전 동의 모달에서 한 번에 받는다.
   } catch {
-    // 닉네임 조회 실패는 치명적이지 않다
+    // 닉네임·동의 조회 실패는 치명적이지 않다(분석은 그대로 동작)
   }
 }
 
@@ -1276,6 +1376,7 @@ $('btn-home-analyze').addEventListener('click', () => void analyze('claude'));
 $('btn-home-codex').addEventListener('click', () => void analyze('codex'));
 $('btn-home-ranking').addEventListener('click', () => void openRankModal());
 $('app-title').addEventListener('click', () => showHome());
+$('btn-save-pdf').addEventListener('click', () => void saveCurrentReportPdf());
 $('btn-back-home').addEventListener('click', () => showHome());
 // 시작 화면의 이전 결과: '⋯ 더 보기'면 펼치고, 카드면 그 저장본 열기
 $('home-history').addEventListener('click', (e) => {
@@ -1337,8 +1438,8 @@ $('btn-score-detail-close').addEventListener('click', () => $('score-detail-moda
 $('score-detail-modal').addEventListener('click', (e) => {
   if (e.target === $('score-detail-modal')) $('score-detail-modal').classList.add('hidden');
 });
-// 닉네임: 보고서 우상단 칩 클릭 → 수정 팝업. 저장 / 나중에 / 닫기 / 배경 클릭.
-$('nick-chip').addEventListener('click', () => openNickModal(false));
+// 닉네임 칩 클릭: 이미 순위에 참여 중이면 닉네임 수정, 아직 동의 안 했으면 참여(동의) 모달.
+$('nick-chip').addEventListener('click', () => void onNickChipClick());
 $('btn-nick-save').addEventListener('click', () => void saveNick());
 $('btn-nick-skip').addEventListener('click', () => dismissNick());
 $('btn-nick-close').addEventListener('click', () => dismissNick());
@@ -1346,6 +1447,30 @@ $('btn-access-choose').addEventListener('click', () => void chooseClaudeFolder()
 $('nick-modal').addEventListener('click', (e) => {
   if (e.target === $('nick-modal')) dismissNick();
 });
+// 전체 순위 동의 모달: 동의하고 참여 / 참여 안 함 / 배경 클릭(=거절). 분석은 어느 쪽이든 진행된다.
+$('btn-consent-agree').addEventListener('click', () => void decideRankConsent(true));
+$('btn-consent-decline').addEventListener('click', () => void decideRankConsent(false));
+$('consent-modal').addEventListener('click', (e) => {
+  if (e.target === $('consent-modal')) void decideRankConsent(false);
+});
+$('consent-nick').addEventListener('keydown', (e) => {
+  if ((e as KeyboardEvent).key === 'Enter') void decideRankConsent(true);
+});
+
+// 칩 클릭 처리: 참여 중이면 닉네임 수정, 아니면 동의 모달을 띄우고 동의 시 직전 분석 결과를 바로 순위에 반영한다.
+async function onNickChipClick(): Promise<void> {
+  if (rankConsent === 'yes') {
+    openNickModal(false);
+    return;
+  }
+  const agreed = await askRankConsent();
+  if (!agreed) return;
+  const rank = await window.api.submitCurrent();
+  if (rank && modalReport) {
+    modalReport.rank = rank;
+    renderLevel(modalReport);
+  }
+}
 $('nick-input').addEventListener('keydown', (e) => {
   if ((e as KeyboardEvent).key === 'Enter') void saveNick();
 });
@@ -1354,6 +1479,11 @@ document.addEventListener('keydown', (e) => {
   // 세부 팝업이 떠 있으면 그것만 닫는다 (랭킹은 뒤에 그대로 둔다)
   if (!$('score-detail-modal').classList.contains('hidden')) {
     $('score-detail-modal').classList.add('hidden');
+    return;
+  }
+  // 동의 모달이 떠 있으면 Esc 는 '참여 안 함'(거절)으로 닫는다(분석은 이어서 진행).
+  if (!$('consent-modal').classList.contains('hidden')) {
+    void decideRankConsent(false);
     return;
   }
   $('criteria-modal').classList.add('hidden');

@@ -62,7 +62,7 @@
         <div id="home-history" class="home-history"></div>
       </div>
 
-      <p class="home-foot">분석은 이 컴퓨터 안에서만 실행되며, 사용 기록은 외부로 전송되지 않습니다.</p>
+      <p class="home-foot">분석은 이 컴퓨터 안에서 실행됩니다. 세션 내용·기록은 전송되지 않으며, 전체 순위에 참여(동의)한 경우에만 점수와 닉네임이 업로드됩니다.</p>
     </section>
 
     <section id="progress" class="hidden">
@@ -148,6 +148,7 @@
       <p class="footnote" id="meta"></p>
 
       <div class="report-foot">
+        <button id="btn-save-pdf" class="save-pdf">PDF 저장</button>
         <button id="btn-back-home" class="back-home">← 메인으로 돌아가기</button>
       </div>
     </main>
@@ -205,6 +206,22 @@
       <div class="nick-actions">
         <button id="btn-nick-save" class="primary">저장</button>
         <button id="btn-nick-skip" class="nick-skip">나중에</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="consent-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="consent-modal-title">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-head">
+        <h2 id="consent-modal-title" class="sec-title">전체 순위에 참여할까요?</h2>
+      </div>
+      <p class="consent-lead">참여하면 내 <b>분석 점수(숫자)</b>와 아래 <b>닉네임</b>이 서버에 익명으로 업로드돼 다른 사용자와 순위를 비교합니다.</p>
+      <p class="consent-note">세션 내용·프롬프트·파일 경로·프로젝트명은 <b>업로드하지 않습니다.</b> 참여하지 않아도 분석은 이 컴퓨터에서 그대로 동작하며, 점수는 외부로 전송되지 않습니다. 참여 여부는 언제든 닉네임 칩에서 바꿀 수 있습니다.</p>
+      <input id="consent-nick" class="nick-input" type="text" maxlength="24" placeholder="닉네임 (선택, 최대 24자)" autocomplete="off" />
+      <p class="consent-privacy">업로드되는 항목과 처리 방식은 <a href="https://johnprk.github.io/ai-usage-checkup/privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a>에서 확인할 수 있어요.</p>
+      <div class="nick-actions">
+        <button id="btn-consent-agree" class="primary">동의하고 참여</button>
+        <button id="btn-consent-decline" class="nick-skip">참여 안 함</button>
       </div>
     </div>
   </div>

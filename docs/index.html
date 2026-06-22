@@ -1,86 +1,563 @@
 <!doctype html>
 <html lang="ko">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI 리포트 · Claude Code 사용 습관 진단</title>
-<meta name="description" content="내 Claude Code 사용 기록을 로컬에서 분석해 5개 축으로 점수화하고, 더 잘 쓰는 법을 추천해 주는 데스크탑 앱.">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 리포트 · Claude Code와 Codex 사용 습관 진단</title>
+<meta name="description" content="내 컴퓨터의 Claude Code·Codex 사용 기록을 로컬에서 분석해 6개 축으로 점수화하고, 더 잘 쓰는 법을 추천해 주는 데스크탑 앱. 로그인도 API 키도 필요 없습니다." />
+<meta property="og:title" content="AI 리포트" />
+<meta property="og:description" content="Claude Code와 Codex를 얼마나 잘 쓰고 있는지 데이터로 진단합니다. 분석은 100% 내 컴퓨터 안에서." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233c5374'/%3E%3Crect x='9' y='17' width='3.4' height='7' rx='1' fill='%23fff'/%3E%3Crect x='14.3' y='12' width='3.4' height='12' rx='1' fill='%23fff'/%3E%3Crect x='19.6' y='8' width='3.4' height='16' rx='1' fill='%23fff'/%3E%3C/svg%3E" />
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    --bg: #f2f1ed;
+    --paper: #ffffff;
+    --ink: #1d1d1f;
+    --body: #3a3a3c;
+    --muted: #6f6e68;
+    --line: #e4e2da;
+    --line-soft: #efede8;
+    --accent: #3c5374;
+    --accent-2: #5d77a0;
+    --accent-soft: rgba(60, 83, 116, 0.07);
+    --good: #25683f;
+    --warn: #9c5a06;
+    --bad: #a63434;
+    --radius: 16px;
+    --shadow: 0 14px 44px rgba(40, 40, 50, 0.09);
+    --maxw: 1040px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17161a;
+      --paper: #201f24;
+      --ink: #f4f3ef;
+      --body: #d2d1cb;
+      --muted: #9a988f;
+      --line: #2d2c32;
+      --line-soft: #28272d;
+      --accent: #88a1c9;
+      --accent-2: #a6bbdc;
+      --accent-soft: rgba(136, 161, 201, 0.12);
+      --good: #5cb585;
+      --warn: #d49a4e;
+      --bad: #d8716b;
+      --shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+    }
+  }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", system-ui, sans-serif;
-    line-height: 1.7;
-    color: #1d1d1f;
-    background: #fbfbfd;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", Roboto, sans-serif;
+    color: var(--body);
+    background: var(--bg);
+    line-height: 1.65;
     -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
   }
-  .wrap { max-width: 680px; margin: 0 auto; padding: 80px 24px 72px; }
-  h1 { font-size: 34px; letter-spacing: -0.025em; margin: 0 0 10px; }
-  .tagline { font-size: 19px; color: #6e6e73; margin: 0 0 40px; }
-  h2 { font-size: 20px; letter-spacing: -0.01em; margin: 44px 0 12px; }
-  p, li { font-size: 16px; color: #2b2b30; }
-  ul { padding-left: 22px; }
-  li { margin: 8px 0; }
-  .axes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; padding: 0; list-style: none; }
-  .axes li { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 14px 16px; margin: 0; font-weight: 600; }
-  .links { margin-top: 40px; padding-top: 28px; border-top: 1px solid #e4e4e7; }
-  .links a { display: inline-block; margin-right: 18px; color: #0066cc; text-decoration: none; font-size: 16px; }
-  .links a:hover { text-decoration: underline; }
-  .privacy-note { background: #f0f4ff; border: 1px solid #d8e2ff; border-radius: 12px; padding: 16px 18px; font-size: 15px; color: #2b3a67; margin-top: 18px; }
-  footer { margin-top: 56px; color: #8a8a8f; font-size: 14px; }
-  @media (prefers-color-scheme: dark) {
-    body { color: #f5f5f7; background: #000; }
-    .tagline, footer { color: #98989d; }
-    p, li { color: #d4d4d8; }
-    h1, h2 { color: #f5f5f7; }
-    .axes li { background: #1c1c1e; border-color: #2c2c2e; }
-    .links { border-color: #2c2c2e; }
-    .links a { color: #4ca3ff; }
-    .privacy-note { background: #11203f; border-color: #1e3a6b; color: #c9d8ff; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  .eyebrow {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 14px;
   }
+  h2 {
+    font-size: clamp(25px, 4vw, 37px); line-height: 1.22;
+    margin: 0 0 14px; color: var(--ink); letter-spacing: -0.03em; font-weight: 800;
+  }
+  .lead { color: var(--muted); margin: 0 0 40px; font-size: 17.5px; max-width: 620px; }
+  section { padding: 92px 0; }
+  section + section { border-top: 1px solid var(--line); }
+
+  /* nav */
+  nav {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 62px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--ink); font-size: 16px; }
+  .brand .mark { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
+  .nav-links { display: flex; gap: 24px; font-size: 14px; align-items: center; }
+  .nav-links a { color: var(--body); font-weight: 500; }
+  .nav-cta {
+    background: var(--ink); color: var(--bg) !important; padding: 8px 15px;
+    border-radius: 9px; font-weight: 650; font-size: 13.5px;
+  }
+  .nav-cta:hover { opacity: 0.88; text-decoration: none; }
+  @media (max-width: 720px) { .nav-links a:not(.nav-cta) { display: none; } }
+
+  /* hero */
+  .hero {
+    position: relative; overflow: hidden; text-align: center; padding: 64px 0 80px;
+    background: radial-gradient(64% 56% at 50% 0%, var(--accent-soft) 0%, transparent 64%), var(--bg);
+  }
+  .hero .eyebrow { display: block; }
+  .hero h1 {
+    font-size: clamp(33px, 6.4vw, 56px); line-height: 1.1;
+    margin: 8px 0 18px; letter-spacing: -0.04em; color: var(--ink); font-weight: 850;
+  }
+  .hero h1 .grad {
+    background: linear-gradient(100deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.tagline {
+    font-size: clamp(16px, 2.2vw, 20px); color: var(--muted);
+    margin: 0 auto 28px; max-width: 580px;
+  }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 13px 24px; border-radius: 12px; font-weight: 650;
+    font-size: 15px; border: 1.5px solid transparent; cursor: pointer;
+  }
+  .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+
+  /* mac app store badge (review pending) */
+  .mas { display: inline-flex; flex-direction: column; align-items: center; gap: 7px; }
+  .mas-badge {
+    display: inline-flex; align-items: center; gap: 11px;
+    background: var(--ink); color: var(--paper);
+    padding: 11px 20px; border-radius: 13px; cursor: default;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  }
+  .mas-badge svg { fill: var(--paper); }
+  .mas-badge .t1 { font-size: 10.5px; opacity: 0.78; line-height: 1.1; letter-spacing: 0.02em; }
+  .mas-badge .t2 { font-size: 17px; font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
+  .mas-tag {
+    font-size: 12px; font-weight: 700; color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+    padding: 3px 11px; border-radius: 999px;
+  }
+
+  /* hero mock */
+  .hero-mock { margin: 52px auto 0; max-width: 540px; }
+  .mock svg { display: block; width: 100%; height: auto;
+    filter: drop-shadow(0 24px 60px rgba(40, 40, 60, 0.16)); border-radius: 18px; }
+  .mock text { font-family: inherit; }
+  .m-card { fill: var(--paper); stroke: var(--line); }
+  .m-ink { fill: var(--ink); }
+  .m-muted { fill: var(--muted); }
+  .m-line { stroke: var(--line); }
+  .m-line-soft { fill: var(--line-soft); }
+  .m-bar { fill: var(--accent); }
+  .m-warn { fill: var(--warn); }
+  .m-good { fill: var(--good); }
+  .m-accent-soft { fill: var(--accent-soft); }
+
+  /* generic grids */
+  .grid { display: grid; gap: 16px; }
+  .axes-grid { grid-template-columns: repeat(auto-fit, minmax(248px, 1fr)); margin-top: 8px; }
+  .card {
+    background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 22px 22px 20px;
+  }
+  .card .ic {
+    width: 38px; height: 38px; border-radius: 10px; background: var(--accent-soft);
+    display: grid; place-items: center; margin-bottom: 14px;
+  }
+  .card .ic svg { width: 21px; height: 21px; stroke: var(--accent); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .card h3 { margin: 0 0 6px; font-size: 16.5px; color: var(--ink); font-weight: 750; letter-spacing: -0.01em; }
+  .card p { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.58; }
+
+  /* split (report anatomy) */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 52px; align-items: center; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; gap: 36px; } }
+  .feat-list { list-style: none; padding: 0; margin: 22px 0 0; }
+  .feat-list li { position: relative; padding: 0 0 0 30px; margin: 16px 0; font-size: 15.5px; color: var(--body); }
+  .feat-list li b { color: var(--ink); font-weight: 700; }
+  .feat-list li::before {
+    content: ""; position: absolute; left: 0; top: 7px; width: 16px; height: 16px;
+    border-radius: 5px; background: var(--accent-soft);
+    border: 1.5px solid var(--accent);
+  }
+  .feat-list li::after {
+    content: ""; position: absolute; left: 5px; top: 10.5px; width: 5px; height: 8px;
+    border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(42deg);
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip {
+    font-size: 13px; font-weight: 600; color: var(--body);
+    background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px;
+  }
+
+  /* ranking */
+  .ladder { display: flex; align-items: flex-end; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 40px; }
+  .tier { display: flex; flex-direction: column; align-items: center; gap: 7px; width: 74px; }
+  .tier svg { width: 44px; height: 48px; }
+  .tier span { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+  .lb-mock {
+    max-width: 420px; margin: 0 auto; background: var(--paper);
+    border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+  }
+  .lb-mock .lb-head { padding: 13px 18px; border-bottom: 1px solid var(--line); font-weight: 750; color: var(--ink); font-size: 14.5px; }
+  table.lb { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.lb td { padding: 9px 18px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; color: var(--body); }
+  table.lb tr:last-child td { border-bottom: none; }
+  .lb-rnk { width: 30px; font-weight: 700; color: var(--ink); }
+  .lb-emb { width: 26px; }
+  .lb-emb svg { width: 22px; height: 24px; display: block; }
+  .lb-avg { text-align: right; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .lb-avg .u { font-size: 11px; font-weight: 400; color: var(--muted); }
+  .lb-me { background: var(--accent-soft); }
+  .lb-me .me-badge { font-size: 10.5px; font-weight: 700; color: var(--accent); margin-left: 6px; }
+  .lb-gap td { text-align: center; color: var(--muted); padding: 4px; letter-spacing: 2px; }
+
+  /* privacy */
+  .privacy-note {
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    border-radius: var(--radius); padding: 26px 28px; max-width: 720px;
+  }
+  .privacy-note h3 { margin: 0 0 10px; color: var(--ink); font-size: 18px; font-weight: 750; display: flex; align-items: center; gap: 9px; }
+  .privacy-note p { margin: 0; font-size: 15.5px; color: var(--body); line-height: 1.62; }
+  .privacy-note .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .privacy-note .pills span {
+    font-size: 13px; font-weight: 650; color: var(--accent);
+    background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px;
+  }
+
+  /* final cta */
+  .final { text-align: center; }
+  .final h2 { max-width: 640px; margin: 0 auto 14px; }
+  .final .lead { margin: 0 auto 30px; }
+
+  /* footer */
+  footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+  footer .links { margin-bottom: 10px; }
+  footer .links a { color: var(--body); margin: 0 12px; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>AI 리포트</h1>
-  <p class="tagline">Claude Code를 얼마나 잘 쓰고 있는지 진단해 주는 데스크탑 앱.</p>
 
-  <p>
-    내 컴퓨터의 Claude Code 세션 기록(최근 30일)을 읽어서, 무엇에 어떻게 쓰고 있는지
-    분석하고 5개 축으로 점수를 매깁니다. 더 잘 쓰기 위한 구체적인 추천도 함께 제공합니다.
-  </p>
-
-  <h2>무엇을 보여 주나요</h2>
-  <ul class="axes">
-    <li>프롬프트 구체성</li>
-    <li>학습 주도성</li>
-    <li>컨텍스트 운용</li>
-    <li>비용·캐시 효율</li>
-    <li>기능 활용도</li>
-  </ul>
-  <ul>
-    <li>세션을 작업 의도별(미션 개발 · 학습 · 글쓰기 · 기타)로 자동 분류</li>
-    <li>토큰·캐시 사용량과 모델 믹스 집계</li>
-    <li>지금 바로 적용할 수 있는 규칙 기반 추천</li>
-    <li>익명 리더보드에서 다른 사용자 대비 내 순위 확인</li>
-  </ul>
-
-  <h2>개인정보</h2>
-  <div class="privacy-note">
-    분석은 전부 사용자 컴퓨터 안에서 동작합니다. 로그인이 없고, 대화 내용·파일 경로·실명·이메일을
-    수집하지 않습니다. 리더보드를 위해 전송되는 정보는 익명 점수와 사용자가 선택한 닉네임뿐입니다.
+<nav>
+  <div class="wrap">
+    <div class="brand">
+      <span class="mark">
+        <svg width="17" height="17" viewBox="0 0 32 32"><rect x="8" y="17" width="3.6" height="7" rx="1" fill="#fff"/><rect x="14.2" y="11" width="3.6" height="13" rx="1" fill="#fff"/><rect x="20.4" y="7" width="3.6" height="17" rx="1" fill="#fff"/></svg>
+      </span>
+      AI 리포트
+    </div>
+    <div class="nav-links">
+      <a href="#axes">평가 축</a>
+      <a href="#report">리포트</a>
+      <a href="#rank">랭킹</a>
+      <a href="#privacy">개인정보</a>
+      <a class="nav-cta" href="#get">받기</a>
+    </div>
   </div>
+</nav>
 
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow">AI 코딩 습관 진단 · macOS</span>
+    <h1>내가 AI를, <span class="grad">잘 쓰고 있는 걸까?</span></h1>
+    <p class="tagline">Claude Code와 Codex 사용 기록을 읽어 6개 축으로 점수를 매기고, 더 잘 쓰는 법을 알려주는 데스크탑 앱.</p>
+
+    <div class="cta">
+      <div class="mas">
+        <!-- 심사 통과 후: 아래 a의 href를 App Store 제품 URL로 바꾸고 cursor:pointer 로 -->
+        <a class="mas-badge" id="mas-badge" aria-label="Mac App Store에서 곧 출시">
+          <svg width="22" height="26" viewBox="0 0 22 26" aria-hidden="true">
+            <path d="M17.05 14.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13z M14.62 6.84c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44z"/>
+          </svg>
+          <span>
+            <span class="t1">곧 만나요</span><br>
+            <span class="t2">Mac App Store</span>
+          </span>
+        </a>
+        <span class="mas-tag">App Store 심사 중 · 곧 출시</span>
+      </div>
+      <a class="btn btn-ghost" href="#axes">어떻게 진단하나요</a>
+    </div>
+
+    <div class="hero-mock mock" aria-label="AI 리포트 분석 결과 예시 화면">
+      <svg viewBox="0 0 540 500" role="img">
+        <!-- card -->
+        <rect class="m-card" x="1" y="1" width="538" height="498" rx="18" stroke-width="1.5"/>
+        <!-- doc head -->
+        <text class="m-ink" x="34" y="50" font-size="21" font-weight="800" letter-spacing="-0.4">AI 리포트</text>
+        <text class="m-muted" x="34" y="70" font-size="12">Claude Code · 최근 30일 · 1,284개 세션</text>
+        <g transform="translate(506,38)" text-anchor="end">
+          <text class="m-muted" x="0" y="0" font-size="11.5">2026.06.17</text>
+          <text class="m-muted" x="0" y="18" font-size="11.5">👤 tinho</text>
+        </g>
+        <line class="m-line" x1="34" y1="84" x2="506" y2="84" stroke-width="2"/>
+
+        <!-- overall -->
+        <text class="m-muted" x="34" y="116" font-size="12" font-weight="700" letter-spacing="0.06em">종합 점수</text>
+        <text class="m-ink" x="34" y="158" font-size="46" font-weight="850" letter-spacing="-1">77</text>
+        <text class="m-muted" x="92" y="158" font-size="16" font-weight="600">/ 100</text>
+        <rect class="m-accent-soft" x="300" y="120" width="206" height="44" rx="10"/>
+        <text class="m-ink" x="403" y="138" font-size="12.5" font-weight="700" text-anchor="middle">1,284명 중 312위</text>
+        <text class="m-muted" x="403" y="154" font-size="11.5" text-anchor="middle">상위 24% · 플래티넘</text>
+
+        <!-- axis rows -->
+        <g font-size="12.5">
+          <!-- row template: label / track / fill / value -->
+          <g transform="translate(0,196)">
+            <text class="m-ink" x="34" y="0" font-weight="600">프롬프트 구체성</text>
+            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
+            <rect class="m-bar" x="210" y="-11" width="201" height="7" rx="3.5"/>
+            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">78</text>
+          </g>
+          <g transform="translate(0,230)">
+            <text class="m-ink" x="34" y="0" font-weight="600">학습 주도성</text>
+            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
+            <rect class="m-bar" x="210" y="-11" width="224" height="7" rx="3.5"/>
+            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">87</text>
+          </g>
+          <g transform="translate(0,264)">
+            <text class="m-ink" x="34" y="0" font-weight="600">오류 회복·수렴</text>
+            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
+            <rect class="m-bar" x="210" y="-11" width="204" height="7" rx="3.5"/>
+            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">79</text>
+          </g>
+          <g transform="translate(0,298)">
+            <text class="m-ink" x="34" y="0" font-weight="600">컨텍스트 운용</text>
+            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
+            <rect class="m-bar" x="210" y="-11" width="217" height="7" rx="3.5"/>
+            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">84</text>
+          </g>
+          <g transform="translate(0,332)">
+            <text class="m-ink" x="34" y="0" font-weight="600">비용·캐시 효율</text>
+            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
+            <rect class="m-bar" x="210" y="-11" width="183" height="7" rx="3.5"/>
+            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">71</text>
+          </g>
+          <g transform="translate(0,366)">
+            <text class="m-ink" x="34" y="0" font-weight="600">기능 활용도</text>
+            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
+            <rect class="m-warn" x="210" y="-11" width="160" height="7" rx="3.5"/>
+            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">62</text>
+          </g>
+        </g>
+
+        <line class="m-line" x1="34" y1="398" x2="506" y2="398" stroke-width="1"/>
+        <!-- recommendation hint -->
+        <circle class="m-warn" cx="40" cy="430" r="4"/>
+        <text class="m-muted" x="54" y="434" font-size="12.5">추천 · 서브에이전트와 훅을 거의 안 써요. 반복 작업부터 훅으로 옮겨 보세요.</text>
+        <circle class="m-bar" cx="40" cy="456" r="4"/>
+        <text class="m-muted" x="54" y="460" font-size="12.5">추천 · 캐시 적중률을 높이려면 같은 세션에서 맥락을 이어가 보세요.</text>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<section id="why">
+  <div class="wrap" style="text-align:center; max-width:720px;">
+    <p class="eyebrow" style="text-align:center;">왜 필요할까요</p>
+    <h2>AI랑 매일 일하는데, 정작 잘 쓰는지는 아무도 안 알려줘요</h2>
+    <p class="lead" style="margin:0 auto;">실력은 도구를 쓰는 습관에서 갈립니다. 프롬프트를 얼마나 또렷하게 적는지, 막혔을 때 끝까지 매듭짓는지, 같은 맥락을 캐시로 아껴 쓰는지. AI 리포트는 이미 쌓인 내 사용 기록을 읽어 그 습관을 숫자로 보여 주고, 어디를 고치면 좋을지 짚어 줍니다.</p>
+  </div>
+</section>
+
+<section id="axes">
+  <div class="wrap">
+    <p class="eyebrow">6개 평가 축</p>
+    <h2>한 번의 분석, 여섯 가지 시선</h2>
+    <p class="lead">공식 문서와 학습 연구를 근거로 삼은 6개 축으로 점수를 매깁니다. 모든 점수에는 "왜 이 점수인지"가 함께 붙습니다.</p>
+    <div class="grid axes-grid">
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg></div>
+        <h3>프롬프트 구체성</h3>
+        <p>요청에 맥락과 제약을 담아 의도를 한 번에 전달하는가.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.9.4-1.5 1-1.5 2.2"/><circle cx="11.8" cy="17.5" r="0.4" fill="currentColor"/><path d="M4 5l3 3-3 3M4 13l3 3-3 3"/></svg></div>
+        <h3>학습 주도성</h3>
+        <p>받은 답을 그대로 두지 않고 꼬리질문으로 파고드는가.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M20 11A8 8 0 1 0 12 20"/><path d="M20 5v6h-6"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>오류 회복·수렴</h3>
+        <p>오류가 난 작업을 버려두지 않고 끝까지 해결로 매듭짓는가.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 4v5a3 3 0 0 0 3 3h6a3 3 0 0 1 3 3v5"/><circle cx="6" cy="4" r="2"/><circle cx="18" cy="20" r="2"/><path d="M3 12h7"/></svg></div>
+        <h3>컨텍스트 운용</h3>
+        <p>대화가 길어지기 전에 정리해 토큰 낭비를 막는가.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></div>
+        <h3>비용·캐시 효율</h3>
+        <p>같은 맥락을 다시 계산하지 않고 캐시에서 읽는가.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><path d="M16 14v6M14 17h6" stroke-width="1.7"/></svg></div>
+        <h3>기능 활용도</h3>
+        <p>서브에이전트·훅·스킬 같은 공식 기능을 작업에 맞게 두루 쓰는가.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="report">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <p class="eyebrow">분석 리포트</p>
+        <h2>점수만이 아니라, 무엇을 어떻게 쓰는지까지</h2>
+        <p class="lead" style="margin-bottom:0;">세션을 작업 의도별로 자동 분류하고, 토큰과 모델 사용을 한눈에 모아 줍니다. 그리고 지금 바로 적용할 수 있는 규칙 기반 추천을 함께 보여 줍니다.</p>
+        <ul class="feat-list">
+          <li><b>작업 의도별 자동 분류</b> · 무슨 일에 AI를 쓰는지 묶어서 보여줘요</li>
+          <li><b>토큰 · 캐시 · 모델 믹스 집계</b> · 어디서 비용이 새는지 한눈에</li>
+          <li><b>규칙 기반 추천</b> · 약한 축부터 무엇을 바꾸면 좋을지 콕 집어서</li>
+          <li><b>Claude Code와 Codex 모두</b> · 각 도구에 맞는 기준으로 따로 진단</li>
+        </ul>
+        <div class="chips">
+          <span class="chip">기능 개발</span>
+          <span class="chip">버그 수정</span>
+          <span class="chip">학습·이해</span>
+          <span class="chip">리팩토링</span>
+          <span class="chip">글쓰기</span>
+          <span class="chip">환경 설정</span>
+        </div>
+      </div>
+      <div class="mock" aria-label="사용 내역 분류와 모델 믹스 예시">
+        <svg viewBox="0 0 460 360" role="img">
+          <rect class="m-card" x="1" y="1" width="458" height="358" rx="16" stroke-width="1.5"/>
+          <text class="m-ink" x="28" y="42" font-size="15" font-weight="750">사용 내역</text>
+          <text class="m-muted" x="28" y="62" font-size="11.5">최근 30일 · 작업 의도별</text>
+
+          <!-- intent stacked bars -->
+          <g font-size="11.5">
+            <g transform="translate(0,92)">
+              <text class="m-ink" x="28" y="0" font-weight="600">기능 개발</text>
+              <rect class="m-line-soft" x="150" y="-10" width="282" height="9" rx="4.5"/>
+              <rect class="m-bar" x="150" y="-10" width="176" height="9" rx="4.5"/>
+              <text class="m-muted" x="432" y="0" text-anchor="end">42%</text>
+            </g>
+            <g transform="translate(0,120)">
+              <text class="m-ink" x="28" y="0" font-weight="600">학습·이해</text>
+              <rect class="m-line-soft" x="150" y="-10" width="282" height="9" rx="4.5"/>
+              <rect class="m-bar" x="150" y="-10" width="110" height="9" rx="4.5"/>
+              <text class="m-muted" x="432" y="0" text-anchor="end">26%</text>
+            </g>
+            <g transform="translate(0,148)">
+              <text class="m-ink" x="28" y="0" font-weight="600">리팩토링</text>
+              <rect class="m-line-soft" x="150" y="-10" width="282" height="9" rx="4.5"/>
+              <rect class="m-bar" x="150" y="-10" width="76" height="9" rx="4.5"/>
+              <text class="m-muted" x="432" y="0" text-anchor="end">18%</text>
+            </g>
+            <g transform="translate(0,176)">
+              <text class="m-ink" x="28" y="0" font-weight="600">글쓰기 · 기타</text>
+              <rect class="m-line-soft" x="150" y="-10" width="282" height="9" rx="4.5"/>
+              <rect class="m-bar" x="150" y="-10" width="60" height="9" rx="4.5"/>
+              <text class="m-muted" x="432" y="0" text-anchor="end">14%</text>
+            </g>
+          </g>
+
+          <line class="m-line" x1="28" y1="210" x2="432" y2="210" stroke-width="1"/>
+
+          <!-- token / cache / model -->
+          <g font-size="11.5">
+            <text class="m-muted" x="28" y="244">입력 토큰</text>
+            <text class="m-ink" x="28" y="266" font-size="18" font-weight="800">8.4M</text>
+            <text class="m-muted" x="172" y="244">캐시 적중률</text>
+            <text class="m-good" x="172" y="266" font-size="18" font-weight="800">71%</text>
+            <text class="m-muted" x="316" y="244">주 모델</text>
+            <text class="m-ink" x="316" y="266" font-size="18" font-weight="800">Opus</text>
+          </g>
+          <g font-size="11" transform="translate(0,300)">
+            <text class="m-muted" x="28" y="0">모델 믹스</text>
+            <rect class="m-line-soft" x="28" y="12" width="404" height="10" rx="5"/>
+            <rect class="m-bar" x="28" y="12" width="248" height="10" rx="5"/>
+            <rect class="m-good" x="276" y="12" width="104" height="10" rx="0"/>
+            <rect class="m-warn" x="380" y="12" width="52" height="10" rx="5"/>
+            <text class="m-muted" x="28" y="40">Opus 61% · Sonnet 26% · Haiku 13%</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="rank">
+  <div class="wrap" style="text-align:center;">
+    <p class="eyebrow" style="text-align:center;">익명 랭킹</p>
+    <h2>다른 사람들 사이에서 나는 어디쯤일까</h2>
+    <p class="lead" style="margin:0 auto 36px;">분석 점수를 익명으로 모아 9개 티어로 보여 줍니다. 보내는 건 숫자 점수와 내가 정한 닉네임뿐, 대화 내용은 절대 나가지 않습니다.</p>
+
+    <div class="ladder" aria-hidden="true">
+      <!-- 9 tiers, ascending -->
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#b07b4f" opacity="0.9"/></svg><span>브론즈</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#9aa6b2"/></svg><span>실버</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#d4a637"/></svg><span>골드</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#56b0a0"/></svg><span>플래티넘</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#2f9e6b"/></svg><span>에메랄드</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#6f8fd6"/></svg><span>다이아</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#9b6bd6"/></svg><span>마스터</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#c0556b"/></svg><span>그랜드마스터</span></div>
+      <div class="tier"><svg viewBox="0 0 44 48"><path d="M22 7l15 5.5v11c0 8.4-6.5 15-15 19.5-8.5-4.5-15-11.1-15-19.5v-11z" fill="#d9a441"/><path d="M14 9l3 3 5-5 5 5 3-3-1.5 7h-13z" fill="#f0cf6b"/></svg><span>챌린저</span></div>
+    </div>
+
+    <div class="lb-mock">
+      <div class="lb-head">리더보드</div>
+      <table class="lb">
+        <tr><td class="lb-rnk">1</td><td class="lb-emb"><svg viewBox="0 0 44 48"><path d="M22 7l15 5.5v11c0 8.4-6.5 15-15 19.5-8.5-4.5-15-11.1-15-19.5v-11z" fill="#d9a441"/><path d="M14 9l3 3 5-5 5 5 3-3-1.5 7h-13z" fill="#f0cf6b"/></svg></td><td>jiwon</td><td class="lb-avg">91<span class="u">점</span></td></tr>
+        <tr><td class="lb-rnk">2</td><td class="lb-emb"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#c0556b"/></svg></td><td>haru</td><td class="lb-avg">88<span class="u">점</span></td></tr>
+        <tr><td class="lb-rnk">3</td><td class="lb-emb"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#9b6bd6"/></svg></td><td>minseo</td><td class="lb-avg">85<span class="u">점</span></td></tr>
+        <tr class="lb-gap"><td colspan="4">· · ·</td></tr>
+        <tr class="lb-me"><td class="lb-rnk">312</td><td class="lb-emb"><svg viewBox="0 0 44 48"><path d="M22 3l16 6v12c0 9-7 16-16 21C13 37 6 30 6 21V9z" fill="#56b0a0"/></svg></td><td>tinho<span class="me-badge">나</span></td><td class="lb-avg">77<span class="u">점</span></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <p class="eyebrow">개인정보</p>
+    <h2>분석은 100% 내 컴퓨터 안에서</h2>
+    <div class="privacy-note">
+      <h3>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        로그인도, API 키도 필요 없습니다
+      </h3>
+      <p>모든 분석은 사용자 컴퓨터 안에서만 동작합니다. 대화 내용, 파일 경로, 실명, 이메일은 수집하지 않습니다. 익명 랭킹을 위해 전송되는 정보는 숫자 점수와 사용자가 직접 정한 닉네임뿐이며, 광고나 크로스앱 추적은 전혀 하지 않습니다.</p>
+      <div class="pills">
+        <span>로컬 분석</span>
+        <span>로그인 없음</span>
+        <span>대화 내용 미전송</span>
+        <span>추적 없음</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="get" class="final">
+  <div class="wrap">
+    <p class="eyebrow" style="text-align:center;">시작하기</p>
+    <h2>지금 내 AI 사용 습관을 진단해 보세요</h2>
+    <p class="lead">Mac App Store 심사를 받고 있어요. 출시되면 바로 이 자리에서 받을 수 있습니다.</p>
+    <div class="cta">
+      <div class="mas">
+        <a class="mas-badge" aria-label="Mac App Store에서 곧 출시">
+          <svg width="22" height="26" viewBox="0 0 22 26" aria-hidden="true">
+            <path d="M17.05 14.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13z M14.62 6.84c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44z"/>
+          </svg>
+          <span><span class="t1">곧 만나요</span><br><span class="t2">Mac App Store</span></span>
+        </a>
+        <span class="mas-tag">App Store 심사 중 · 곧 출시</span>
+      </div>
+      <a class="btn btn-ghost" href="https://github.com/JohnPrk/ai-usage-checkup">GitHub에서 보기</a>
+    </div>
+  </div>
+</section>
+
+<footer>
   <div class="links">
     <a href="./privacy.html">개인정보 처리방침</a>
-    <a href="https://github.com/JohnPrk/ai-usage-checkup">GitHub · 지원 / 문의</a>
+    <a href="https://github.com/JohnPrk/ai-usage-checkup">GitHub · 문의</a>
   </div>
+  <div>문의: <a href="mailto:john3641493@gmail.com">john3641493@gmail.com</a></div>
+  <div style="margin-top:8px; opacity:0.7;">© 2026 박민욱 · AI 리포트</div>
+</footer>
 
-  <footer>
-    문의: <a href="mailto:john3641493@gmail.com" style="color:inherit">john3641493@gmail.com</a>
-  </footer>
-</div>
 </body>
 </html>

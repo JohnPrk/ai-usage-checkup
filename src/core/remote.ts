@@ -49,7 +49,8 @@ export function getRank(avg: number): Promise<RankResult> {
 }
 
 // 리더보드: 상위 top 위 + 내 행. (등수·닉네임·평균·퍼센타일)만 돌아온다.
-export function leaderboard(installId: string, top: number): Promise<LeaderboardResult> {
+// installId 가 null 이면 서버가 '내 행'을 못 찾아 me=null 로 돌려준다(동의 전엔 내 식별자를 안 보냄).
+export function leaderboard(installId: string | null, top: number): Promise<LeaderboardResult> {
   return rpc<LeaderboardResult>('leaderboard', { p_install_id: installId, p_top: top });
 }
 

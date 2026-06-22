@@ -34,4 +34,4 @@ for (const name of cacheDirs) {
     cleared++;
   }
 }
-console.log(`  렌더러 캐시 ${cleared}개 디렉토리 정리 (${base})`);
+console.log(`  렌더러 캐시 ${cleared}개 디렉토리 정리`);

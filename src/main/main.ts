@@ -122,8 +122,9 @@ ipcMain.handle('analyze', async (_e, days: number) => {
       win?.webContents.send('progress', p);
     });
     lastReport = report;
-    // 분석하면 자동으로 점수(숫자만)를 올리고 순위를 받아 리포트에 싣는다 (버튼 없이 바로)
-    const rank = await pushScore(report);
+    // 전체 순위 참여에 동의한 경우에만 점수(숫자)를 서버에 올리고 순위를 받는다.
+    // 동의 전이면 업로드하지 않으며, 리포트는 절대평가 Lv. 로 표시된다(renderLevel 폴백).
+    const rank = readRankConsent() === 'yes' ? await pushScore(report) : null;
     if (rank) report.rank = rank;
     saveSnapshot(report, 'claude');
     return report;
@@ -154,13 +155,41 @@ ipcMain.handle('copy', (_e, text: string) => {
   return true;
 });
 
+ipcMain.handle('saveReportPdf', async (_e, suggestedName: string, layout?: { width: number; height: number }) => {
+  if (!win) return { ok: false, error: '열려 있는 리포트 창을 찾지 못했어요.' };
+
+  const safeName = sanitizePdfFilename(suggestedName);
+  const pageSize = pdfPageSize(layout);
+  const res = await dialog.showSaveDialog(win, {
+    title: 'PDF 저장',
+    defaultPath: path.join(app.getPath('documents'), safeName),
+    buttonLabel: '저장',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+
+  try {
+    const pdf = await win.webContents.printToPDF({
+      pageSize,
+      margins: { marginType: 'none' },
+      printBackground: true,
+      preferCSSPageSize: false,
+      generateDocumentOutline: true,
+    });
+    fs.writeFileSync(res.filePath, pdf);
+    return { ok: true, path: res.filePath };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+});
+
 ipcMain.handle('history', () => listSnapshots());
 
 ipcMain.handle('snapshot', (_e, date: string, source?: 'claude' | 'codex') => loadSnapshot(date, source ?? 'claude'));
 
-// 점수 재전송 없이 순위만 갱신 (현재 분석 결과 기준)
+// 점수 재전송 없이 순위만 갱신 (현재 분석 결과 기준). 동의 전에는 점수를 서버로 보내지 않는다.
 ipcMain.handle('rank', async () => {
-  if (!lastReport) return null;
+  if (!lastReport || readRankConsent() !== 'yes') return null;
   try {
     return toView(await getRank(reportAvg(lastReport)));
   } catch {
@@ -169,8 +198,9 @@ ipcMain.handle('rank', async () => {
 });
 
 // 홈 시작화면용: 가장 최근 저장본의 점수로 최신 순위를 바로 조회.
-// 랭킹은 클로드 점수 기준이라 코덱스 스냅샷은 제외한다.
+// 랭킹은 클로드 점수 기준이라 코덱스 스냅샷은 제외한다. 동의 전에는 조회하지 않는다.
 ipcMain.handle('latestRank', async () => {
+  if (readRankConsent() !== 'yes') return null;
   const snap = listSnapshots().find((s) => s.source === 'claude');
   if (!snap) return null;
   try {
@@ -186,6 +216,17 @@ ipcMain.handle('leaderboard', () => leaderboardView());
 // 닉네임(공개 랭킹 표시명): 로컬 userData 에 저장. 파일 유무로 "이미 정했는지"를 구분한다.
 ipcMain.handle('getNickname', () => readNickname());
 ipcMain.handle('setNickname', (_e, name: string) => writeNickname(name));
+
+// 전체 순위 업로드 동의: 조회 / 설정. 'yes' 가 되기 전에는 점수·닉네임이 서버로 나가지 않는다.
+ipcMain.handle('getRankConsent', () => readRankConsent());
+ipcMain.handle('setRankConsent', (_e, agree: boolean) => writeRankConsent(!!agree));
+
+// 방금 동의한 사용자가 곧바로 순위에 반영되도록, 직전 분석 결과를 한 번 올려 순위를 돌려준다.
+// (동의 흐름에서만 호출. 동의 전이거나 분석 결과가 없으면 null)
+ipcMain.handle('submitCurrent', async () => {
+  if (readRankConsent() !== 'yes' || !lastReport) return null;
+  return pushScore(lastReport);
+});
 
 // App Store(MAS) 폴더 접근: ~/.claude 를 한 번 선택받아 북마크로 저장한다.
 // defaultPath 를 .claude 로 줘서 숨김 폴더여도 그 안에서 창이 열린다.
@@ -229,6 +270,30 @@ function writeBookmark(b: string): void {
   }
 }
 
+function sanitizePdfFilename(name: string): string {
+  const base = String(name || '')
+    .normalize('NFC')
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+  const fallback = 'AI 리포트.pdf';
+  if (!base) return fallback;
+  return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+}
+
+function pdfPageSize(layout?: { width: number; height: number }): Electron.PrintToPDFOptions['pageSize'] {
+  const width = Math.ceil(Number(layout?.width));
+  const height = Math.ceil(Number(layout?.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return 'A4';
+
+  // Chromium PDF pageSize uses inches. The renderer sends CSS pixels at 96dpi.
+  return {
+    width: Math.min(Math.max(width, 640), 2400) / 96,
+    height: Math.min(Math.max(height, 900), 3400) / 96,
+  };
+}
+
 // ── 익명 랭킹: 설치 ID · 닉네임 · 전송 ──────────────────────────────
 // 첫 실행 때 한 번 만든 랜덤 UUID. 로그인 대신 "이 설치"를 식별한다 (개인정보 아님)
 function installId(): string {
@@ -268,9 +333,36 @@ function writeNickname(name: string): string {
   } catch {
     // 저장 실패해도 이번 세션 값은 반환
   }
-  // 이미 분석해 서버에 행이 있으면 닉네임을 즉시 반영한다(행이 없으면 set_name 은 no-op)
-  remoteSetName(installId(), clean).catch(() => {});
+  // 닉네임은 "전체 순위 참여에 동의"한 경우에만 서버로 보낸다. 동의 전에는 로컬에만 저장한다.
+  // (이미 분석해 서버에 행이 있으면 닉네임을 즉시 반영한다. 행이 없으면 set_name 은 no-op)
+  if (readRankConsent() === 'yes') remoteSetName(installId(), clean).catch(() => {});
   return clean;
+}
+
+// ── 전체 순위(리더보드) 업로드 동의 ───────────────────────────────
+// App Store 가이드라인 5.1.2(i): 점수를 서버(전체 순위)에 올리기 전에 사용자의 명시적 동의를 받아야 한다.
+// 동의 여부는 userData/rank-consent 파일에 'yes'/'no' 로 저장한다. 파일이 없으면 'unset'(아직 안 물어봄).
+// 'yes' 가 아니면 어떤 점수·닉네임도 서버로 나가지 않는다(분석은 로컬에서 그대로 동작).
+function rankConsentPath(): string {
+  return path.join(app.getPath('userData'), 'rank-consent');
+}
+function readRankConsent(): 'yes' | 'no' | 'unset' {
+  try {
+    const v = fs.readFileSync(rankConsentPath(), 'utf8').trim();
+    return v === 'yes' ? 'yes' : v === 'no' ? 'no' : 'unset';
+  } catch {
+    return 'unset';
+  }
+}
+function writeRankConsent(agree: boolean): 'yes' | 'no' {
+  const v: 'yes' | 'no' = agree ? 'yes' : 'no';
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.writeFileSync(rankConsentPath(), v);
+  } catch {
+    // 저장 실패해도 이번 세션 값은 반환
+  }
+  return v;
 }
 
 // 리포트 점수 → 서버로 보낼 숫자들. 축별 점수 + 평균, 이게 전부다
@@ -313,7 +405,9 @@ function rowWithTier(r: LeaderboardRow): LeaderboardRowView {
 }
 async function leaderboardView(): Promise<LeaderboardView | null> {
   try {
-    const lb = await fetchLeaderboard(installId(), 5);
+    // 동의 전에는 내 install_id 를 서버로 보내지 않는다(상위 5위 공개 데이터만 읽고, '내 행' 식별은 안 함).
+    const id = readRankConsent() === 'yes' ? installId() : null;
+    const lb = await fetchLeaderboard(id, 5);
     return {
       total: lb.total,
       top: (lb.top ?? []).map(rowWithTier),
