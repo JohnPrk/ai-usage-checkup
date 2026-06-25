@@ -49,6 +49,10 @@
               <span class="act-go" aria-hidden="true">→</span>
             </button>
           </div>
+          <button id="btn-folder-settings" class="home-folder-btn hidden" type="button">
+            <span class="hf-text">분석에 사용하는 폴더</span>
+            <span class="hf-go" aria-hidden="true">›</span>
+          </button>
         </div>
 
         <div id="home-journey" class="home-journey hidden"></div>
@@ -181,6 +185,10 @@
         <h2 id="rank-modal-title" class="sec-title">랭킹</h2>
         <button id="btn-rank-close" class="modal-close" aria-label="닫기">×</button>
       </div>
+      <div id="rank-source-toggle" class="rank-src-toggle">
+        <button class="rank-src-btn is-active" data-source="claude" type="button">Claude</button>
+        <button class="rank-src-btn" data-source="codex" type="button">Codex</button>
+      </div>
       <div id="rank-modal-body"></div>
     </div>
   </div>
@@ -201,8 +209,9 @@
         <h2 id="nick-modal-title" class="sec-title">닉네임 설정</h2>
         <button id="btn-nick-close" class="modal-close" aria-label="닫기">×</button>
       </div>
-      <p class="nick-help">랭킹에 표시될 이름이에요. 다른 사람에게 공개되니 실명·개인정보는 피해주세요.</p>
+      <p class="nick-help">랭킹에 표시될 이름이에요. 다른 사람에게 공개되니 실명·개인정보는 피해주세요. 이미 다른 사람이 쓰는 닉네임은 정할 수 없어요.</p>
       <input id="nick-input" class="nick-input" type="text" maxlength="24" placeholder="닉네임 (최대 24자)" autocomplete="off" />
+      <p id="nick-error" class="nick-error hidden"></p>
       <div class="nick-actions">
         <button id="btn-nick-save" class="primary">저장</button>
         <button id="btn-nick-skip" class="nick-skip">나중에</button>
@@ -218,6 +227,7 @@
       <p class="consent-lead">참여하면 내 <b>분석 점수(숫자)</b>와 아래 <b>닉네임</b>이 서버에 익명으로 업로드돼 다른 사용자와 순위를 비교합니다.</p>
       <p class="consent-note">세션 내용·프롬프트·파일 경로·프로젝트명은 <b>업로드하지 않습니다.</b> 참여하지 않아도 분석은 이 컴퓨터에서 그대로 동작하며, 점수는 외부로 전송되지 않습니다. 참여 여부는 언제든 닉네임 칩에서 바꿀 수 있습니다.</p>
       <input id="consent-nick" class="nick-input" type="text" maxlength="24" placeholder="닉네임 (선택, 최대 24자)" autocomplete="off" />
+      <p id="consent-nick-error" class="nick-error hidden"></p>
       <p class="consent-privacy">업로드되는 항목과 처리 방식은 <a href="https://johnprk.github.io/ai-usage-checkup/privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a>에서 확인할 수 있어요.</p>
       <div class="nick-actions">
         <button id="btn-consent-agree" class="primary">동의하고 참여</button>
@@ -231,10 +241,24 @@
       <div class="modal-head">
         <h2 id="access-modal-title" class="sec-title">폴더 접근 허용</h2>
       </div>
-      <p class="nick-help">분석하려면 Claude Code 사용 기록이 있는 <code>~/.claude</code> 폴더 접근을 한 번 허용해야 해요. 폴더 선택 창에서 그대로 “이 폴더 허용”을 누르면 됩니다. 내용은 이 컴퓨터 안에서만 읽고, 외부로 보내지 않아요.</p>
+      <p id="access-help" class="nick-help"></p>
+      <p class="access-why">macOS App Store 보안 정책(앱 샌드박스) 때문에 처음 한 번은 폴더를 직접 골라 허용해야 읽을 수 있어요. 허용한 폴더의 내용은 이 컴퓨터 안에서만 읽고, 외부로 보내지 않습니다.</p>
       <div class="nick-actions">
+        <button id="btn-access-cancel" class="nick-skip">나중에</button>
         <button id="btn-access-choose" class="primary">폴더 선택</button>
       </div>
+    </div>
+  </div>
+
+  <div id="folder-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-head">
+        <h2 id="folder-modal-title" class="sec-title">분석에 사용하는 폴더</h2>
+        <button id="btn-folder-close" class="modal-close" aria-label="닫기">×</button>
+      </div>
+      <p id="folder-intro" class="nick-help"></p>
+      <div id="folder-rows" class="folder-rows"></div>
+      <p class="footnote">사용 기록은 분석할 때 이 컴퓨터 안에서만 읽어요. 세션 내용·프롬프트·파일 경로는 어디로도 전송되지 않습니다.</p>
     </div>
   </div>
 

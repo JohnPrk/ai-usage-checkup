@@ -1,17 +1,18 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } from 'electron';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { realHome } from '../core/home';
 import { runAnalysis } from '../core/analyze';
 import { runCodexAnalysis } from '../core/codex/analyze';
 import { runCoaching } from '../core/llm';
 import { Report, SnapshotMeta, RankResult, RankView, LeaderboardView, LeaderboardRow, LeaderboardRowView } from '../core/types';
-import { submitAndRank, getRank, leaderboard as fetchLeaderboard, setName as remoteSetName } from '../core/remote';
+import { submitAndRank, getRank, leaderboard as fetchLeaderboard, setName as remoteSetName, nameAvailable } from '../core/remote';
 import { standingFor } from '../core/tier';
 import { randomUUID } from 'crypto';
 
 let win: BrowserWindow | null = null;
 let lastReport: Report | null = null;
+let lastReportSource: 'claude' | 'codex' = 'claude'; // lastReport 가 어떤 도구 분석본인지(랭킹 source)
 
 function createWindow(): void {
   // 시작 시 화면 가용 영역의 최대 높이로 띄운다 (폭은 문서 가독 폭 유지, 가로 중앙 정렬)
@@ -105,42 +106,36 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.handle('analyze', async (_e, days: number) => {
-  // App Store(MAS) 빌드: 컨테이너 밖(~/.claude) 읽기는 사용자가 허용한 폴더의
-  // security-scoped 북마크로만 가능하다. 북마크가 없으면 폴더 허용을 먼저 요청한다.
-  let stop: (() => void) | null = null;
-  if (process.mas) {
-    const bm = readBookmark();
-    if (!bm) return { status: 'need_access' };
-    try {
-      stop = app.startAccessingSecurityScopedResource(bm) as () => void;
-    } catch {
-      return { status: 'need_access' };
-    }
-  }
-  try {
+  return withScopedAccess('claude', async () => {
     const report = await runAnalysis(days || 30, (p) => {
       win?.webContents.send('progress', p);
     });
     lastReport = report;
+    lastReportSource = 'claude';
     // 전체 순위 참여에 동의한 경우에만 점수(숫자)를 서버에 올리고 순위를 받는다.
     // 동의 전이면 업로드하지 않으며, 리포트는 절대평가 Lv. 로 표시된다(renderLevel 폴백).
-    const rank = readRankConsent() === 'yes' ? await pushScore(report) : null;
+    const rank = readRankConsent() === 'yes' ? await pushScore(report, 'claude') : null;
     if (rank) report.rank = rank;
     saveSnapshot(report, 'claude');
     return report;
-  } finally {
-    if (stop) stop();
-  }
+  });
 });
 
 ipcMain.handle('analyzeCodex', async (_e, days: number) => {
-  // Codex 분석은 ~/.codex/sessions 를 읽는다. 랭킹·코칭은 범위 밖(클로드 점수 기준)이지만,
-  // 스냅샷은 남겨 이전 결과·점수 추이에서 클로드와 나란히 비교한다.
-  const report = await runCodexAnalysis(days || 30, (p) => {
-    win?.webContents.send('progress', p);
+  // Codex 분석은 ~/.codex/sessions 를 읽는다. 코칭은 범위 밖(클로드 전용)이지만,
+  // 랭킹은 코덱스도 별도 source('codex')로 올린다(동의한 경우). 스냅샷은 남겨 추이에서 클로드와 비교.
+  // .codex 는 .claude 의 하위가 아니라 형제 폴더라, 클로드 북마크로는 못 읽는다 → 별도 허용 필요.
+  return withScopedAccess('codex', async () => {
+    const report = await runCodexAnalysis(days || 30, (p) => {
+      win?.webContents.send('progress', p);
+    });
+    lastReport = report;
+    lastReportSource = 'codex';
+    const rank = readRankConsent() === 'yes' ? await pushScore(report, 'codex') : null;
+    if (rank) report.rank = rank;
+    saveSnapshot(report, 'codex');
+    return report;
   });
-  saveSnapshot(report, 'codex');
-  return report;
 });
 
 ipcMain.handle('coach', async () => {
@@ -191,31 +186,45 @@ ipcMain.handle('snapshot', (_e, date: string, source?: 'claude' | 'codex') => lo
 ipcMain.handle('rank', async () => {
   if (!lastReport || readRankConsent() !== 'yes') return null;
   try {
-    return toView(await getRank(reportAvg(lastReport)));
+    return toView(await getRank(reportAvg(lastReport), lastReportSource));
   } catch {
     return null;
   }
 });
 
-// 홈 시작화면용: 가장 최근 저장본의 점수로 최신 순위를 바로 조회.
-// 랭킹은 클로드 점수 기준이라 코덱스 스냅샷은 제외한다. 동의 전에는 조회하지 않는다.
+// 홈 시작화면용: 가장 최근 클로드 저장본의 점수로 최신 순위를 바로 조회(홈 순위는 클로드 기준).
+// 동의 전에는 조회하지 않는다.
 ipcMain.handle('latestRank', async () => {
   if (readRankConsent() !== 'yes') return null;
   const snap = listSnapshots().find((s) => s.source === 'claude');
   if (!snap) return null;
   try {
-    return toView(await getRank(snap.avgScore));
+    return toView(await getRank(snap.avgScore, 'claude'));
   } catch {
     return null;
   }
 });
 
-// 랭킹 리더보드: 상위 5위 + 내 행. 행마다 티어(엠블럼)까지 계산해 내려보낸다.
-ipcMain.handle('leaderboard', () => leaderboardView());
+// 랭킹 리더보드: 한 페이지(5명) + 내 행. source('claude'|'codex')로 분리 조회. 행마다 티어 계산.
+ipcMain.handle('leaderboard', (_e, page: number, source: 'claude' | 'codex' = 'claude') =>
+  leaderboardView(page, source),
+);
 
 // 닉네임(공개 랭킹 표시명): 로컬 userData 에 저장. 파일 유무로 "이미 정했는지"를 구분한다.
 ipcMain.handle('getNickname', () => readNickname());
 ipcMain.handle('setNickname', (_e, name: string) => writeNickname(name));
+
+// 닉네임 중복 확인(저장 전 미리). 다른 사람이 이미 쓰는 이름이면 available:false.
+// 서버 조회에 실패하면 막지 않는다 — 분석 업로드 시 서버(unique index)가 최종 판정한다.
+ipcMain.handle('checkNickname', async (_e, name: string) => {
+  const clean = String(name ?? '').trim().slice(0, 24);
+  if (!clean) return { available: true };
+  try {
+    return { available: await nameAvailable(installId(), clean) };
+  } catch {
+    return { available: true };
+  }
+});
 
 // 전체 순위 업로드 동의: 조회 / 설정. 'yes' 가 되기 전에는 점수·닉네임이 서버로 나가지 않는다.
 ipcMain.handle('getRankConsent', () => readRankConsent());
@@ -225,48 +234,100 @@ ipcMain.handle('setRankConsent', (_e, agree: boolean) => writeRankConsent(!!agre
 // (동의 흐름에서만 호출. 동의 전이거나 분석 결과가 없으면 null)
 ipcMain.handle('submitCurrent', async () => {
   if (readRankConsent() !== 'yes' || !lastReport) return null;
-  return pushScore(lastReport);
+  return pushScore(lastReport, lastReportSource);
 });
 
-// App Store(MAS) 폴더 접근: ~/.claude 를 한 번 선택받아 북마크로 저장한다.
-// defaultPath 를 .claude 로 줘서 숨김 폴더여도 그 안에서 창이 열린다.
-ipcMain.handle('chooseClaudeDir', async () => {
+// App Store(MAS) 폴더 접근: 폴더를 한 번 선택받아 북마크로 저장한다.
+// defaultPath 를 진짜 홈(realHome)의 .claude/.codex 로 줘서 숨김 폴더여도 그 안에서 창이 열린다.
+// (os.homedir() 는 샌드박스에서 컨테이너를 가리켜 엉뚱한 위치에서 창이 열린다.)
+async function chooseDir(kind: FolderKind): Promise<{ ok: boolean; path?: string; mismatch?: boolean }> {
+  const folder = kind === 'codex' ? '.codex' : '.claude';
   const opts: Electron.OpenDialogOptions = {
-    defaultPath: path.join(os.homedir(), '.claude'),
+    defaultPath: path.join(realHome(), folder),
     properties: ['openDirectory'],
     securityScopedBookmarks: true,
     buttonLabel: '이 폴더 허용',
-    message: 'AI 리포트가 사용 기록을 읽을 ~/.claude 폴더를 허용해주세요',
+    message: `AI 리포트가 사용 기록을 읽을 ~/${folder} 폴더를 허용해주세요`,
   };
   const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
   if (res.canceled || !res.filePaths.length) return { ok: false };
-  if (res.bookmarks && res.bookmarks[0]) writeBookmark(res.bookmarks[0]);
-  return { ok: true, path: res.filePaths[0] };
-});
+  const chosen = res.filePaths[0];
+  if (res.bookmarks && res.bookmarks[0]) writeBookmark(kind, res.bookmarks[0], chosen);
+  // 기대한 폴더(.claude/.codex)가 아닌 다른 폴더를 고른 경우 신호를 준다(허용 자체는 저장).
+  return { ok: true, path: chosen, mismatch: path.basename(chosen) !== folder };
+}
+ipcMain.handle('chooseClaudeDir', () => chooseDir('claude'));
+ipcMain.handle('chooseCodexDir', () => chooseDir('codex'));
 
-// 렌더러 온보딩 분기용: MAS 빌드인지 + 폴더 접근 북마크 보유 여부
-ipcMain.handle('claudeAccess', () => ({ isMas: process.mas === true, hasAccess: !!readBookmark() }));
+// 렌더러 온보딩 분기용: MAS 빌드인지 + 클로드 폴더 접근 북마크 보유 여부
+ipcMain.handle('claudeAccess', () => ({ isMas: process.mas === true, hasAccess: !!readBookmark('claude') }));
+
+// 폴더 설정 화면용: 두 폴더의 허용 여부 + 허용된 실제 경로
+ipcMain.handle('access', () => ({
+  isMas: process.mas === true,
+  claude: { granted: !!readBookmark('claude'), path: readGrantedDir('claude') },
+  codex: { granted: !!readBookmark('codex'), path: readGrantedDir('codex') },
+}));
 
 // ── App Store(MAS) 폴더 접근: security-scoped bookmark ──────────────
-// 샌드박스에서 ~/.claude 를 읽으려면 사용자가 고른 폴더의 북마크가 필요하다.
+// 샌드박스에서 ~/.claude·~/.codex 를 읽으려면 사용자가 고른 폴더의 북마크가 필요하다.
 // 닉네임·install_id 와 같은 방식으로 userData 에 base64 문자열로 저장한다.
-function bookmarkPath(): string {
-  return path.join(app.getPath('userData'), 'claude-bookmark');
+// .claude 와 .codex 는 형제 폴더라 북마크를 폴더별로 따로 가진다.
+type FolderKind = 'claude' | 'codex';
+
+function bookmarkPath(kind: FolderKind): string {
+  return path.join(app.getPath('userData'), kind === 'codex' ? 'codex-bookmark' : 'claude-bookmark');
 }
-function readBookmark(): string | null {
+// 허용받은 실제 폴더 경로(설정 화면 표시·잘못 고름 확인용). 북마크는 base64라 경로를 따로 저장한다.
+function grantedDirPath(kind: FolderKind): string {
+  return path.join(app.getPath('userData'), kind === 'codex' ? 'codex-dir' : 'claude-dir');
+}
+function readBookmark(kind: FolderKind): string | null {
   try {
-    const b = fs.readFileSync(bookmarkPath(), 'utf8').trim();
+    const b = fs.readFileSync(bookmarkPath(kind), 'utf8').trim();
     return b || null;
   } catch {
     return null;
   }
 }
-function writeBookmark(b: string): void {
+function readGrantedDir(kind: FolderKind): string | null {
+  try {
+    const p = fs.readFileSync(grantedDirPath(kind), 'utf8').trim();
+    return p || null;
+  } catch {
+    return null;
+  }
+}
+function writeBookmark(kind: FolderKind, b: string, dir: string): void {
   try {
     fs.mkdirSync(app.getPath('userData'), { recursive: true });
-    fs.writeFileSync(bookmarkPath(), b);
+    fs.writeFileSync(bookmarkPath(kind), b);
+    fs.writeFileSync(grantedDirPath(kind), dir);
   } catch {
     // 저장 실패해도 다음 실행 때 다시 허용을 요청하면 된다
+  }
+}
+
+// App Store(MAS) 빌드: 컨테이너 밖(~/.claude·~/.codex) 읽기는 허용받은 폴더의 북마크로만 가능하다.
+// 북마크가 없으면 폴더 허용을 먼저 받게 need_access 를 돌려주고, 분석이 끝나면 접근을 반드시 해제한다.
+async function withScopedAccess<T>(
+  kind: FolderKind,
+  run: () => Promise<T>
+): Promise<T | { status: 'need_access' }> {
+  let stop: (() => void) | null = null;
+  if (process.mas) {
+    const bm = readBookmark(kind);
+    if (!bm) return { status: 'need_access' };
+    try {
+      stop = app.startAccessingSecurityScopedResource(bm) as () => void;
+    } catch {
+      return { status: 'need_access' };
+    }
+  }
+  try {
+    return await run();
+  } finally {
+    if (stop) stop();
   }
 }
 
@@ -386,10 +447,10 @@ function toView(r: RankResult): RankView {
   return v;
 }
 
-async function pushScore(r: Report): Promise<RankView | null> {
+async function pushScore(r: Report, source: 'claude' | 'codex'): Promise<RankView | null> {
   try {
     return toView(
-      await submitAndRank(installId(), reportAvg(r), reportAxes(r), app.getVersion(), readNickname().name),
+      await submitAndRank(installId(), reportAvg(r), reportAxes(r), app.getVersion(), readNickname().name, source),
     );
   } catch (e) {
     console.error('[rank] submit failed', e);
@@ -403,13 +464,19 @@ function rowWithTier(r: LeaderboardRow): LeaderboardRowView {
   const s = standingFor(r.percentile);
   return { ...r, tier: { key: s.tier.key, name: s.tier.name, color: s.tier.color } };
 }
-async function leaderboardView(): Promise<LeaderboardView | null> {
+const RANK_PAGE_SIZE = 5; // 리더보드 한 페이지 행 수
+async function leaderboardView(page = 0, source: 'claude' | 'codex' = 'claude'): Promise<LeaderboardView | null> {
   try {
-    // 동의 전에는 내 install_id 를 서버로 보내지 않는다(상위 5위 공개 데이터만 읽고, '내 행' 식별은 안 함).
+    // 동의 전에는 내 install_id 를 서버로 보내지 않는다(공개 데이터만 읽고, '내 행' 식별은 안 함).
     const id = readRankConsent() === 'yes' ? installId() : null;
-    const lb = await fetchLeaderboard(id, 5);
+    const p = Math.max(0, Math.floor(page) || 0);
+    const src = source === 'codex' ? 'codex' : 'claude';
+    const lb = await fetchLeaderboard(id, RANK_PAGE_SIZE, p * RANK_PAGE_SIZE, src);
     return {
       total: lb.total,
+      page: p,
+      pageSize: RANK_PAGE_SIZE,
+      source: src,
       top: (lb.top ?? []).map(rowWithTier),
       me: lb.me ? rowWithTier(lb.me) : null,
     };

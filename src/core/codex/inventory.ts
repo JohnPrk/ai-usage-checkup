@@ -1,7 +1,7 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { Inventory } from '../types';
+import { realHome } from '../home';
 
 // Codex 자산 인벤토리. Claude의 buildInventory와 같은 Inventory 타입으로 채워 renderer를 재사용한다
 // (globalClaudeMd 자리 = AGENTS.md). mcpServers·plugins 수는 점수(featureCoverage)용으로 따로 반환한다.
@@ -15,7 +15,7 @@ export function buildCodexInventory(
   topProjects: { project: string; cwd: string }[],
   skillUseCount: Map<string, number>
 ): CodexInventory {
-  const home = os.homedir();
+  const home = realHome();
   const codex = path.join(home, '.codex');
 
   // 전역 AGENTS.md (= 전역 CLAUDE.md 대응)

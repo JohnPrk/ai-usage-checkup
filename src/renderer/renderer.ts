@@ -381,9 +381,9 @@ window.api.onProgress((p) => {
 
 async function analyze(source: 'claude' | 'codex' = 'claude'): Promise<void> {
   if (running) return;
-  // 클로드 분석만 점수를 서버(전체 순위)에 올린다. 아직 동의 여부를 묻지 않았다면
+  // 클로드·코덱스 분석 모두 점수를 서버(도구별 전체 순위)에 올린다. 아직 동의 여부를 묻지 않았다면
   // 업로드 전에 동의 모달을 먼저 띄운다(동의/거절과 무관하게 분석은 이어서 진행).
-  if (source === 'claude' && rankConsent === 'unset') await askRankConsent();
+  if (rankConsent === 'unset') await askRankConsent();
   running = true;
   currentSource = source;
   $('report').classList.add('hidden');
@@ -395,10 +395,10 @@ async function analyze(source: 'claude' | 'codex' = 'claude'): Promise<void> {
   try {
     const report = source === 'codex' ? await window.api.analyzeCodex(90) : await window.api.analyze(30);
     if ('status' in report) {
-      // MAS 빌드: ~/.claude 접근이 아직 허용 안 됨 → 폴더 허용 받고 자동 재시도
+      // MAS 빌드: 그 도구 폴더(~/.claude·~/.codex) 접근이 아직 허용 안 됨 → 허용 받고 자동 재시도
       $('progress').classList.add('hidden');
       $('subtitle').textContent = '폴더 접근 허용이 필요해요';
-      openAccessModal();
+      openAccessModal(source);
       return;
     }
     $('progress').classList.add('hidden');
@@ -979,16 +979,51 @@ async function saveCurrentReportPdf(): Promise<void> {
   }
 }
 
-// 랭킹 리더보드 팝업: 상위 5위 + (5위 밖이면) ⋯ + 내 행. 표 = 엠블럼·등수·평균·이름.
+// 랭킹 리더보드 팝업: 한 페이지(7명) + (페이지 밖이면) ⋯ + 내 행 + 이전/다음 내비. 표 = 엠블럼·등수·평균·이름.
+let rankPage = 0; // 0-based 현재 페이지
+let rankSource: 'claude' | 'codex' = 'claude'; // 어떤 도구의 랭킹을 보는지(상단 토글)
+
 async function openRankModal(): Promise<void> {
+  rankPage = 0;
+  rankSource = 'claude';
+  updateRankToggle();
+  $('rank-modal').classList.remove('hidden');
+  await renderRankPage();
+}
+
+// 상단 [Claude | Codex] 토글의 활성 표시를 현재 rankSource 에 맞춘다.
+function updateRankToggle(): void {
+  document.querySelectorAll('#rank-source-toggle .rank-src-btn').forEach((b) => {
+    b.classList.toggle('is-active', (b as HTMLElement).dataset.source === rankSource);
+  });
+}
+
+// 토글로 도구를 바꾼다: 같은 도구면 무시, 다르면 1페이지부터 다시 그린다.
+async function switchRankSource(source: 'claude' | 'codex'): Promise<void> {
+  if (source === rankSource) return;
+  rankSource = source;
+  rankPage = 0;
+  updateRankToggle();
+  await renderRankPage();
+}
+
+// 현재 rankPage·rankSource 를 서버에서 불러와 모달 본문을 다시 그린다(페이지/도구 이동 시 재호출).
+async function renderRankPage(): Promise<void> {
   const body = $('rank-modal-body');
   body.innerHTML = '<p class="rank-empty">불러오는 중…</p>';
-  $('rank-modal').classList.remove('hidden');
   try {
-    const lb = await window.api.leaderboard();
+    const lb = await window.api.leaderboard(rankPage, rankSource);
     if (!lb || lb.total === 0) {
+      const tool = rankSource === 'codex' ? '코덱스' : '클로드';
       body.innerHTML =
-        '<p class="rank-empty">아직 랭킹에 오른 사람이 없어요.<br/><b>클로드 분석하기</b>로 분석하면 순위가 올라가요.</p>';
+        `<p class="rank-empty">아직 ${tool} 랭킹에 오른 사람이 없어요.<br/><b>${tool} 분석하기</b>로 분석하면 순위가 올라가요.</p>`;
+      return;
+    }
+    // 데이터가 줄어 현재 페이지가 비었으면(마지막 페이지 이탈) 마지막 페이지로 보정해 다시 그린다.
+    const lastPage = Math.max(0, Math.ceil(lb.total / lb.pageSize) - 1);
+    if (lb.top.length === 0 && rankPage > lastPage) {
+      rankPage = lastPage;
+      await renderRankPage();
       return;
     }
     body.innerHTML = leaderboardHTML(lb);
@@ -1006,10 +1041,12 @@ function leaderboardRowHTML(r: LbRow): string {
     chars.length > 7
       ? `<span title="${esc(r.name)}">${esc(chars.slice(0, 7).join(''))}…</span>`
       : esc(r.name);
-  // 세부 보기는 내 행에만 — 축별 점수는 내 것만 로컬에 있다(서버 리더보드는 평균만 준다)
-  const action = r.isMe
-    ? '<button class="lb-detail-btn" type="button">상세 보기 <span class="arrow">›</span></button>'
-    : '';
+  // 세부 보기: 모든 행. 내 행은 로컬 저장본, 다른 행은 서버가 준 축별 점수(axes)를 모달에서 보여준다.
+  // axes 는 data 속성에 JSON 으로 실어 보낸다(esc 로 따옴표를 엔티티화 → 브라우저가 dataset 읽을 때 복원).
+  const axesAttr = esc(JSON.stringify(r.axes ?? {}));
+  const action =
+    `<button class="lb-detail-btn" type="button" data-me="${r.isMe ? '1' : '0'}"` +
+    ` data-name="${esc(r.name)}" data-axes="${axesAttr}">상세 보기 <span class="arrow">›</span></button>`;
   return (
     `<tr class="lb-row${r.isMe ? ' lb-me' : ''}">` +
     `<td class="lb-c-emblem">${emblem}</td>` +
@@ -1023,15 +1060,41 @@ function leaderboardRowHTML(r: LbRow): string {
 
 function leaderboardHTML(lb: Leaderboard): string {
   const rows = lb.top.map(leaderboardRowHTML).join('');
-  // 내가 상위 목록 안에 없고 내 행이 있으면 ⋯ 구분선 + 내 행을 맨 아래 덧붙인다
-  const meInTop = lb.top.some((r) => r.isMe);
-  const tail =
-    lb.me && !meInTop ? `<tr class="lb-gap"><td colspan="5">⋯</td></tr>${leaderboardRowHTML(lb.me)}` : '';
+  const meInPage = lb.top.some((r) => r.isMe);
+  // 내 행이 이 페이지에 없으면 ⋯ 구분선 + 내 행을 따로 만들어 맨 아래(여백 띄워)에 둔다.
+  const meFoot =
+    lb.me && !meInPage
+      ? `<div class="lb-gap-line">⋯</div><table class="lb lb-me-table"><tbody>${leaderboardRowHTML(lb.me)}</tbody></table>`
+      : '';
   const cap = lb.me
     ? `<p class="lb-cap">전체 <b>${lb.total.toLocaleString()}명</b> 중 <b>${lb.me.rnk.toLocaleString()}위</b></p>`
     : `<p class="lb-cap">전체 <b>${lb.total.toLocaleString()}명</b></p>`;
   const note = !lb.me ? '<p class="lb-note">분석하면 내 순위도 여기 올라가요.</p>' : '';
-  return `${cap}<table class="lb"><tbody>${rows}${tail}</tbody></table>${note}`;
+  // 모달 높이를 고정하고 위=등수 표 / 가운데=여백(spacer) / 아래=내 행 + 페이저로 배치한다.
+  return (
+    `${cap}` +
+    `<div class="lb-flow">` +
+    `<table class="lb"><tbody>${rows}</tbody></table>` +
+    `<div class="lb-spacer"></div>` +
+    `<div class="lb-foot">${meFoot}${paginationHTML(lb)}</div>` +
+    `</div>` +
+    `${note}`
+  );
+}
+
+// 이전/다음 페이지 내비 + "현재 / 전체" 표시. 페이지가 하나뿐이면 아무것도 안 그린다.
+function paginationHTML(lb: Leaderboard): string {
+  const totalPages = Math.max(1, Math.ceil(lb.total / lb.pageSize));
+  if (totalPages <= 1) return '';
+  const prevDis = lb.page <= 0 ? ' disabled' : '';
+  const nextDis = lb.page >= totalPages - 1 ? ' disabled' : '';
+  return (
+    `<div class="lb-pager">` +
+    `<button class="lb-pg-btn" id="lb-prev" type="button"${prevDis} aria-label="이전 페이지">‹</button>` +
+    `<span class="lb-pg-info">${lb.page + 1} / ${totalPages}</span>` +
+    `<button class="lb-pg-btn" id="lb-next" type="button"${nextDis} aria-label="다음 페이지">›</button>` +
+    `</div>`
+  );
 }
 
 // 내 축별 점수: 최신 클로드 저장본을 쓴다(랭킹은 클로드 점수 기준). 없으면 이번 세션 분석본으로 폴백.
@@ -1051,15 +1114,33 @@ async function loadMyScores(): Promise<{ axis: string; score: number }[] | null>
     : null;
 }
 
-// 내 점수 세부 팝업: 평균이 어떤 축 점수들로 이뤄졌는지 간단히 (랭킹 → 세부 보기)
-async function openScoreDetail(): Promise<void> {
+// 서버 axes(JSON 문자열) → 화면용 점수 배열(높은 축부터). 다른 사람 상세 보기에서 사용.
+function axesToScores(json: string | undefined): { axis: string; score: number }[] | null {
+  if (!json) return null;
+  try {
+    const obj = JSON.parse(json) as Record<string, number>;
+    const list = Object.entries(obj).map(([axis, score]) => ({ axis, score: Math.round(score) }));
+    if (!list.length) return null;
+    list.sort((a, b) => b.score - a.score);
+    return list;
+  } catch {
+    return null;
+  }
+}
+
+// 점수 세부 팝업: 평균이 어떤 축 점수들로 이뤄졌는지 (랭킹 → 상세 보기).
+// 내 행은 로컬 저장본(loadMyScores), 다른 행은 서버가 준 축별 점수(dataset.axes)를 쓴다.
+async function openScoreDetail(d?: DOMStringMap): Promise<void> {
   const body = $('score-detail-body');
+  const isMe = !d || d.me === '1';
+  $('score-detail-title').textContent = isMe ? '내 세부 점수' : `${d?.name ?? ''} 세부 점수`;
   body.innerHTML = '<p class="rank-empty">불러오는 중…</p>';
   $('score-detail-modal').classList.remove('hidden');
-  const scores = await loadMyScores();
+  const scores = isMe ? await loadMyScores() : axesToScores(d?.axes);
   if (!scores || !scores.length) {
-    body.innerHTML =
-      '<p class="rank-empty">아직 점수가 없어요.<br/><b>클로드 분석하기</b>로 분석하면 보여요.</p>';
+    body.innerHTML = isMe
+      ? '<p class="rank-empty">아직 점수가 없어요.<br/><b>클로드 분석하기</b>로 분석하면 보여요.</p>'
+      : '<p class="rank-empty">세부 점수를 불러오지 못했어요.</p>';
     return;
   }
   const avg = Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length);
@@ -1092,6 +1173,7 @@ let consentResolve: ((agree: boolean) => void) | null = null;
 function askRankConsent(): Promise<boolean> {
   const input = $('consent-nick') as HTMLInputElement;
   input.value = myNick;
+  $('consent-nick-error').classList.add('hidden');
   $('consent-modal').classList.remove('hidden');
   setTimeout(() => input.focus(), 30);
   return new Promise((resolve) => {
@@ -1100,11 +1182,23 @@ function askRankConsent(): Promise<boolean> {
 }
 
 // 동의/거절 확정: 서버 동의 플래그를 저장하고, 동의면 닉네임도 함께 저장한다.
+// 참여(동의) + 닉네임 입력 시 이미 쓰이는 이름이면 막고(모달 유지) 다른 이름을 받는다. '참여 안 함'은 막지 않는다.
 async function decideRankConsent(agree: boolean): Promise<void> {
+  const input = $('consent-nick') as HTMLInputElement;
+  const name = input.value.trim().slice(0, 24);
+  const err = $('consent-nick-error');
+  err.classList.add('hidden');
+  if (agree && name) {
+    const { available } = await window.api.checkNickname(name);
+    if (!available) {
+      err.textContent = '이미 다른 사람이 쓰는 닉네임이에요. 비워두거나 다른 이름을 입력해주세요.';
+      err.classList.remove('hidden');
+      return;
+    }
+  }
   rankConsent = await window.api.setRankConsent(agree);
   if (agree) {
-    const input = $('consent-nick') as HTMLInputElement;
-    myNick = await window.api.setNickname(input.value.trim().slice(0, 24));
+    myNick = await window.api.setNickname(name);
     updateNickChip();
   }
   $('consent-modal').classList.add('hidden');
@@ -1125,6 +1219,7 @@ function openNickModal(firstRun: boolean): void {
   nickFirstRun = firstRun;
   const input = $('nick-input') as HTMLInputElement;
   input.value = myNick;
+  $('nick-error').classList.add('hidden');
   $('btn-nick-skip').textContent = firstRun ? '나중에' : '취소';
   $('nick-modal').classList.remove('hidden');
   setTimeout(() => input.focus(), 30);
@@ -1132,7 +1227,19 @@ function openNickModal(firstRun: boolean): void {
 
 async function saveNick(): Promise<void> {
   const input = $('nick-input') as HTMLInputElement;
-  myNick = await window.api.setNickname(input.value.trim().slice(0, 24));
+  const name = input.value.trim().slice(0, 24);
+  const err = $('nick-error');
+  err.classList.add('hidden');
+  // 다른 이름으로 바꿀 때만 중복 확인(같은 이름·빈 이름은 통과)
+  if (name && name !== myNick) {
+    const { available } = await window.api.checkNickname(name);
+    if (!available) {
+      err.textContent = '이미 다른 사람이 쓰는 닉네임이에요. 다른 이름을 입력해주세요.';
+      err.classList.remove('hidden');
+      return;
+    }
+  }
+  myNick = await window.api.setNickname(name);
   updateNickChip();
   $('nick-modal').classList.add('hidden');
 }
@@ -1157,21 +1264,96 @@ async function initNickname(): Promise<void> {
 }
 
 // ── 폴더 접근(App Store 샌드박스) ─────────────────────────────────
-// MAS 빌드에서만 쓰인다. ~/.claude 접근을 한 번 허용받아 북마크로 저장한다.
-// 허용되면 onGranted(온보딩에서는 닉네임 단계)를, 없으면 바로 분석을 재시도한다.
+// MAS 빌드에서만 실제로 쓰인다. ~/.claude·~/.codex 는 형제 폴더라 각각 따로 허용받아 북마크로 저장한다.
+// 허용되면 onGranted(첫 실행은 닉네임 단계)를, 없으면 그 도구 분석을 다시 시도한다.
+type FolderKind = 'claude' | 'codex';
+const FOLDER_PATH: Record<FolderKind, string> = { claude: '~/.claude', codex: '~/.codex' };
+const FOLDER_TOOL: Record<FolderKind, string> = { claude: 'Claude Code', codex: 'Codex' };
+
+let accessKind: FolderKind = 'claude';
 let accessAfter: (() => void) | null = null;
-function openAccessModal(onGranted?: () => void): void {
+
+function openAccessModal(kind: FolderKind, onGranted?: () => void): void {
+  accessKind = kind;
   accessAfter = onGranted ?? null;
+  $('access-help').innerHTML =
+    `${esc(FOLDER_TOOL[kind])} 사용 기록이 있는 <code>${esc(FOLDER_PATH[kind])}</code> 폴더 접근을 한 번 허용해야 분석할 수 있어요. ` +
+    `폴더 선택 창에서 그대로 “이 폴더 허용”을 누르면 됩니다.`;
+  ($('btn-access-choose') as HTMLButtonElement).textContent = `${FOLDER_PATH[kind]} 폴더 선택`;
   $('access-modal').classList.remove('hidden');
 }
-async function chooseClaudeFolder(): Promise<void> {
-  const res = await window.api.chooseClaudeDir();
+
+async function chooseAccessFolder(): Promise<void> {
+  const res = accessKind === 'codex' ? await window.api.chooseCodexDir() : await window.api.chooseClaudeDir();
   if (!res.ok) return; // 취소하면 모달을 그대로 둬 다시 선택할 수 있게 한다
   $('access-modal').classList.add('hidden');
   const after = accessAfter;
   accessAfter = null;
   if (after) after();
-  else void analyze();
+  else void analyze(accessKind);
+}
+
+function cancelAccess(): void {
+  accessAfter = null;
+  $('access-modal').classList.add('hidden');
+  showHome();
+}
+
+// ── 분석 폴더 설정(데이터 출처 + 재허용) ───────────────────────────
+// 어떤 폴더에서 사용 기록을 읽는지 보여준다. MAS 빌드에서는 폴더를 (다시) 허용할 수 있고,
+// 직접 배포판은 허용 없이 자동으로 읽으므로 경로만 안내한다.
+type AccessState = Awaited<ReturnType<typeof window.api.access>>;
+
+async function openFolderModal(): Promise<void> {
+  $('folder-modal').classList.remove('hidden');
+  await renderFolderModal();
+}
+
+async function renderFolderModal(): Promise<void> {
+  const rows = $('folder-rows');
+  rows.innerHTML = '<p class="rank-empty">불러오는 중…</p>';
+  let acc: AccessState;
+  try {
+    acc = await window.api.access();
+  } catch {
+    rows.innerHTML = '<p class="rank-empty">폴더 상태를 불러오지 못했어요.</p>';
+    return;
+  }
+  $('folder-intro').textContent = acc.isMas
+    ? 'App Store 보안 정책(앱 샌드박스) 때문에 사용 기록 폴더를 한 번 직접 골라 허용해야 읽을 수 있어요. .claude 와 .codex 는 서로 다른 폴더라 각각 허용해야 합니다.'
+    : '분석할 때 아래 폴더의 사용 기록만 이 컴퓨터 안에서 읽어요. 직접 배포판은 별도 허용 없이 자동으로 읽습니다.';
+  rows.innerHTML = (['claude', 'codex'] as const).map((k) => folderRowHTML(k, acc)).join('');
+}
+
+function folderRowHTML(kind: FolderKind, acc: AccessState): string {
+  const info = acc[kind];
+  let status: string, statusCls: string, dir: string, btn: string;
+  if (!acc.isMas) {
+    status = '자동 읽기'; statusCls = 'auto'; dir = FOLDER_PATH[kind]; btn = '';
+  } else if (info.granted) {
+    status = '허용됨'; statusCls = 'on'; dir = info.path ?? FOLDER_PATH[kind];
+    btn = `<button class="folder-btn" data-kind="${kind}" type="button">다시 선택</button>`;
+  } else {
+    status = '허용 필요'; statusCls = 'off'; dir = FOLDER_PATH[kind];
+    btn = `<button class="folder-btn folder-btn-do" data-kind="${kind}" type="button">폴더 허용</button>`;
+  }
+  return `
+    <div class="folder-row">
+      <div class="folder-meta">
+        <div class="folder-head">
+          <span class="folder-tool">${esc(FOLDER_TOOL[kind])}</span>
+          <span class="folder-status ${statusCls}">${esc(status)}</span>
+        </div>
+        <code class="folder-path" title="${esc(dir)}">${esc(dir)}</code>
+      </div>
+      ${btn}
+    </div>`;
+}
+
+async function chooseFolderFromSettings(kind: FolderKind): Promise<void> {
+  const res = kind === 'codex' ? await window.api.chooseCodexDir() : await window.api.chooseClaudeDir();
+  if (!res.ok) return;
+  await renderFolderModal(); // 허용 결과를 즉시 반영
 }
 
 // 첫 실행: MAS 빌드이고 폴더 미허용이면 폴더 허용을 먼저 받고, 그 다음 닉네임으로 넘어간다.
@@ -1179,7 +1361,7 @@ async function initOnboarding(): Promise<void> {
   try {
     const acc = await window.api.claudeAccess();
     if (acc.isMas && !acc.hasAccess) {
-      openAccessModal(() => void initNickname());
+      openAccessModal('claude', () => void initNickname());
       return;
     }
   } catch {
@@ -1427,9 +1609,26 @@ $('axis-modal').addEventListener('click', (e) => {
 });
 $('btn-rank-close').addEventListener('click', () => $('rank-modal').classList.add('hidden'));
 $('rank-modal').addEventListener('click', (e) => {
-  // 내 행의 '세부 보기' → 축별 점수 팝업 (리더보드는 매번 다시 그려져 위임으로 잡는다)
-  if ((e.target as HTMLElement).closest('.lb-detail-btn')) {
-    void openScoreDetail();
+  const t = e.target as HTMLElement;
+  // 상단 [Claude | Codex] 토글 → 그 도구 랭킹으로 전환
+  const srcBtn = t.closest('.rank-src-btn') as HTMLElement | null;
+  if (srcBtn?.dataset.source) {
+    void switchRankSource(srcBtn.dataset.source as 'claude' | 'codex');
+    return;
+  }
+  // 행의 '상세 보기' → 축별 점수 팝업 (리더보드는 매번 다시 그려져 위임으로 잡는다)
+  const detailBtn = t.closest('.lb-detail-btn') as HTMLElement | null;
+  if (detailBtn) {
+    void openScoreDetail(detailBtn.dataset);
+    return;
+  }
+  // 이전/다음 페이지 이동
+  const pgBtn = t.closest('.lb-pg-btn') as HTMLButtonElement | null;
+  if (pgBtn) {
+    if (!pgBtn.disabled) {
+      rankPage = pgBtn.id === 'lb-prev' ? Math.max(0, rankPage - 1) : rankPage + 1;
+      void renderRankPage();
+    }
     return;
   }
   if (e.target === $('rank-modal')) $('rank-modal').classList.add('hidden');
@@ -1443,7 +1642,19 @@ $('nick-chip').addEventListener('click', () => void onNickChipClick());
 $('btn-nick-save').addEventListener('click', () => void saveNick());
 $('btn-nick-skip').addEventListener('click', () => dismissNick());
 $('btn-nick-close').addEventListener('click', () => dismissNick());
-$('btn-access-choose').addEventListener('click', () => void chooseClaudeFolder());
+$('btn-access-choose').addEventListener('click', () => void chooseAccessFolder());
+$('btn-access-cancel').addEventListener('click', () => cancelAccess());
+// 분석 폴더 설정: 홈의 '분석에 사용하는 폴더' → 두 폴더 상태/재허용 모달
+$('btn-folder-settings').addEventListener('click', () => void openFolderModal());
+$('btn-folder-close').addEventListener('click', () => $('folder-modal').classList.add('hidden'));
+$('folder-modal').addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('.folder-btn') as HTMLElement | null;
+  if (btn?.dataset.kind) {
+    void chooseFolderFromSettings(btn.dataset.kind as FolderKind);
+    return;
+  }
+  if (e.target === $('folder-modal')) $('folder-modal').classList.add('hidden');
+});
 $('nick-modal').addEventListener('click', (e) => {
   if (e.target === $('nick-modal')) dismissNick();
 });
@@ -1486,6 +1697,15 @@ document.addEventListener('keydown', (e) => {
     void decideRankConsent(false);
     return;
   }
+  // 폴더 접근 모달: Esc 는 '나중에'(홈으로). 폴더 설정 모달은 그냥 닫는다.
+  if (!$('access-modal').classList.contains('hidden')) {
+    cancelAccess();
+    return;
+  }
+  if (!$('folder-modal').classList.contains('hidden')) {
+    $('folder-modal').classList.add('hidden');
+    return;
+  }
   $('criteria-modal').classList.add('hidden');
   $('axis-modal').classList.add('hidden');
   $('rank-modal').classList.add('hidden');
@@ -1493,6 +1713,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // 앱을 열면 시작 화면을 보여준다 (분석은 사용자가 직접 시작)
+$('btn-folder-settings').classList.remove('hidden'); // '분석에 사용하는 폴더'는 항상 노출(내용은 열 때 도구별로 채움)
 void loadHistory();
 void initOnboarding();
 showHome();

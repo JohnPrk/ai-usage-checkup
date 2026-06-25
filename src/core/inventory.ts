@@ -1,14 +1,14 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { Inventory } from './types';
+import { realHome } from './home';
 
 // CLAUDE.md·스킬·훅 설정 자산을 훑는다. 훅은 실행 기록이 로그에 안 남으므로 구성만 보여준다.
 export function buildInventory(
   topProjects: { project: string; cwd: string }[],
   skillUseCount: Map<string, number>
 ): Inventory {
-  const home = os.homedir();
+  const home = realHome();
 
   const globalClaudeMd = { exists: false, bytes: 0 };
   try {

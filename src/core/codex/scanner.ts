@@ -1,6 +1,6 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { realHome } from '../home';
 
 export interface ScannedCodexFile {
   file: string;
@@ -9,8 +9,10 @@ export interface ScannedCodexFile {
 }
 
 // Codex 세션 로그 위치. ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 만 읽는다.
+// realHome() 을 쓴다: 앱 샌드박스(App Store)에선 os.homedir()=$HOME 이 컨테이너를 가리켜
+// 비어 보인다. 진짜 홈(/Users/<me>) 접근은 codex 북마크로 따로 허용받는다(main.ts). [[claude-codex-realhome]]
 export function codexSessionDirs(): string[] {
-  const home = os.homedir();
+  const home = realHome();
   return [path.join(home, '.codex', 'sessions')].filter(isDir);
 }
 

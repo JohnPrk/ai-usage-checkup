@@ -1,9 +1,9 @@
-import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import { realHome } from './home';
 
 export function claudeProjectDirs(): string[] {
-  const home = os.homedir();
+  const home = realHome();
   const candidates = [
     path.join(home, '.claude', 'projects'),
     path.join(home, '.config', 'claude', 'projects'),

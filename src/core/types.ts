@@ -177,26 +177,30 @@ export interface RankView extends RankResult {
   topPct?: number; // 내 상위 % (반올림 전 원값)
 }
 
-// 리더보드 한 행: 등수 + 닉네임 + 평균점수 (+ 행별 티어 매핑용 percentile, 내 행 여부)
+// 리더보드 한 행: 등수 + 닉네임 + 평균점수 (+ 행별 티어 매핑용 percentile, 축별점수, 내 행 여부)
 export interface LeaderboardRow {
   rnk: number;
   name: string;
   avg: number;
+  axes?: Record<string, number>; // 축 이름 → 점수. 상세 보기용(순위 공개 동의 참여자만 서버에 올라감)
   percentile: number; // 0~1 (cume_dist). main 이 이 값으로 행별 티어를 계산한다
   isMe?: boolean;
 }
-// 서버 리더보드 RPC 응답: 상위 N + 내 행(없으면 null)
+// 서버 리더보드 RPC 응답: 한 페이지(limit/offset) + 내 행(없으면 null)
 export interface LeaderboardResult {
   total: number;
   top: LeaderboardRow[];
   me: LeaderboardRow | null;
 }
-// renderer 에 내려가는 뷰: 각 행에 main 이 계산한 티어(엠블럼 키)를 붙인다
+// renderer 에 내려가는 뷰: 각 행에 main 이 계산한 티어(엠블럼 키)를 붙이고, 현재 페이지 정보를 함께 준다
 export interface LeaderboardRowView extends LeaderboardRow {
   tier?: { key: string; name: string; color: string };
 }
 export interface LeaderboardView {
   total: number;
+  page: number; // 0-based 현재 페이지
+  pageSize: number; // 페이지당 행 수
+  source: 'claude' | 'codex'; // 이 뷰가 어떤 도구의 랭킹인지
   top: LeaderboardRowView[];
   me: LeaderboardRowView | null;
 }

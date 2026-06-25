@@ -11,14 +11,18 @@ contextBridge.exposeInMainWorld('api', {
   snapshot: (date: string, source: 'claude' | 'codex' = 'claude') => ipcRenderer.invoke('snapshot', date, source),
   rank: () => ipcRenderer.invoke('rank'),
   latestRank: () => ipcRenderer.invoke('latestRank'),
-  leaderboard: () => ipcRenderer.invoke('leaderboard'),
+  leaderboard: (page = 0, source: 'claude' | 'codex' = 'claude') =>
+    ipcRenderer.invoke('leaderboard', page, source),
   getNickname: () => ipcRenderer.invoke('getNickname'),
   setNickname: (name: string) => ipcRenderer.invoke('setNickname', name),
+  checkNickname: (name: string) => ipcRenderer.invoke('checkNickname', name),
   getRankConsent: () => ipcRenderer.invoke('getRankConsent'),
   setRankConsent: (agree: boolean) => ipcRenderer.invoke('setRankConsent', agree),
   submitCurrent: () => ipcRenderer.invoke('submitCurrent'),
   chooseClaudeDir: () => ipcRenderer.invoke('chooseClaudeDir'),
+  chooseCodexDir: () => ipcRenderer.invoke('chooseCodexDir'),
   claudeAccess: () => ipcRenderer.invoke('claudeAccess'),
+  access: () => ipcRenderer.invoke('access'),
   onProgress: (cb: (p: unknown) => void) => {
     ipcRenderer.on('progress', (_e, p) => cb(p));
   },

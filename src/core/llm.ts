@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { Coaching, Report } from './types';
+import { realHome } from './home';
 
 export function findClaude(): string | null {
   const names = process.platform === 'win32' ? ['claude.cmd', 'claude.exe', 'claude'] : ['claude'];
@@ -11,8 +12,8 @@ export function findClaude(): string | null {
   dirs.push(
     '/opt/homebrew/bin',
     '/usr/local/bin',
-    path.join(os.homedir(), '.local', 'bin'),
-    path.join(os.homedir(), '.claude', 'local')
+    path.join(realHome(), '.local', 'bin'),
+    path.join(realHome(), '.claude', 'local')
   );
   for (const d of dirs) {
     for (const n of names) {

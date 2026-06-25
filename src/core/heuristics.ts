@@ -1,6 +1,6 @@
-import * as os from 'os';
 import * as path from 'path';
 import { AxisCriterion, Behavior, Inventory, Rec, ScoreMetric, SessionSummary } from './types';
+import { realHome } from './home';
 import {
   featureScore,
   learningScore,
@@ -19,7 +19,7 @@ function dirKind(s: SessionSummary): DirKind {
   const cwd = s.cwd;
   if (cwd) {
     if (/\/(?:private\/)?(?:var\/folders|tmp)\//.test(cwd + '/')) return 'temp';
-    const home = os.homedir();
+    const home = realHome();
     if (cwd === home) return 'loose';
     const rel = path.relative(home, cwd);
     if (['Desktop', 'Downloads', 'Documents'].includes(rel)) return 'loose';
@@ -37,7 +37,7 @@ export function placeLabel(s: SessionSummary): string {
   const kind = dirKind(s);
   if (kind === 'temp') return '임시 폴더';
   if (s.cwd) {
-    const home = os.homedir();
+    const home = realHome();
     if (s.cwd === home) return '홈 폴더';
     const rel = path.relative(home, s.cwd);
     if (rel === 'Desktop') return '바탕화면';
@@ -57,7 +57,7 @@ export function placeLabel(s: SessionSummary): string {
 export function projectKind(s: SessionSummary): string {
   const cwd = s.cwd;
   if (cwd) {
-    const home = os.homedir();
+    const home = realHome();
     if (cwd === home || cwd === path.join(home, 'Desktop')) return '기타';
     if (/\/woowa_course\//.test(cwd) || /roomescape|racingcar/i.test(path.basename(cwd))) return '우테코 미션';
     return '개인 프로젝트';

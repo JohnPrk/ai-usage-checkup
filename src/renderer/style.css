@@ -144,29 +144,61 @@ select { color: var(--muted); max-width: 170px; }
 /* 내 행 '세부 보기' 버튼 + 축별 점수 칼럼 */
 .lb-c-action { width: 1%; text-align: right; white-space: nowrap; }
 .lb-detail-btn {
-  border: 1px solid var(--line);
-  background: #fff;
-  color: var(--ink);
+  border: none;
+  background: none;
+  color: var(--muted);
   font-size: 11.5px;
   font-weight: 600;
-  padding: 5px 10px;
+  padding: 5px 4px;
   border-radius: 7px;
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 2px;
 }
-.lb-detail-btn:hover { border-color: var(--bar); color: var(--bar); background: #fff; }
+.lb-detail-btn:hover { color: var(--bar); background: none; }
 .lb-detail-btn .arrow { font-size: 13px; line-height: 1; }
 
 /* 랭킹 모달: 세로로 넉넉한 패널 + 큰 행 */
-.modal-box-rank { max-width: 460px; min-height: min(560px, 78vh); }
+.modal-box-rank { max-width: 460px; min-height: min(560px, 78vh); display: flex; flex-direction: column; }
 .modal-box-rank .lb { margin-top: 2px; }
 .modal-box-rank .lb td { padding: 12px 7px; }
 .modal-box-rank .lb-emblem-img { height: 40px; }
 .modal-box-rank .lb-c-rnk { width: 54px; font-size: 15px; }
 .modal-box-rank .lb-c-avg { font-size: 16px; }
 .modal-box-rank .lb-c-name { font-size: 14px; }
+
+/* 도구 토글: [Claude | Codex] 세그먼트. 헤더 아래 고정, 본문(rank-modal-body)은 그대로 흐른다 */
+.rank-src-toggle {
+  flex: 0 0 auto;
+  display: flex; gap: 4px;
+  background: #f1efea; border-radius: 9px; padding: 3px;
+  margin: 4px 0 10px;
+}
+.rank-src-btn {
+  flex: 1; padding: 7px 0; border: none; background: none; border-radius: 7px;
+  font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer;
+}
+.rank-src-btn:hover { color: var(--ink); }
+.rank-src-btn.is-active { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+/* 본문을 높이 채우는 세로 흐름으로: 위=등수 표, 가운데=여백, 아래=내 행+페이저 */
+#rank-modal-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.lb-flow { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.lb-spacer { flex: 1 1 auto; min-height: 16px; }   /* 가운데 여백 — 행이 적어도 내 행을 맨 아래로 민다 */
+.lb-foot { flex: 0 0 auto; }
+.lb-me-table { margin-top: 0; }
+.lb-gap-line { text-align: center; color: var(--muted); letter-spacing: 2px; padding: 4px 0 2px; }
+
+/* 리더보드 페이지 내비: 이전/다음 + "현재 / 전체" (button 기본 스타일 위에 크기·정렬만 얹는다) */
+.lb-pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px 2px 2px; }
+.lb-pg-btn {
+  width: 34px; height: 34px; padding: 0;
+  border-radius: 8px; font-size: 18px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.lb-pg-btn:hover:not(:disabled) { border-color: var(--bar); color: var(--bar); background: #fff; }
+.lb-pg-info { font-size: 13px; font-weight: 700; color: var(--ink); min-width: 52px; text-align: center; }
 
 /* 내 점수 세부 팝업: 평균 + 축별 점수 막대 */
 .sd-top {
@@ -213,6 +245,12 @@ select { color: var(--muted); max-width: 170px; }
 .consent-lead b, .consent-note b { color: var(--ink); font-weight: 700; }
 .consent-privacy { color: var(--muted); font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
 .consent-privacy a { color: var(--bar); text-decoration: underline; }
+
+/* 닉네임 중복 등 입력 오류 안내(닉네임·동의 모달 공용) */
+.nick-error { color: var(--bad); font-size: 12.5px; line-height: 1.5; margin: 8px 0 0; font-weight: 600; }
+
+/* 폴더 접근 모달: 왜 한 번 골라야 하는지 보조 설명 */
+.access-why { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0 0 4px; }
 
 .info-badge {
   display: inline-flex;
@@ -513,6 +551,44 @@ select { color: var(--muted); max-width: 170px; }
   background: #fbfaf7; color: var(--muted); font-size: 12px; font-weight: 650;
 }
 .home-more:hover { background: #f3f1ec; color: var(--ink); }
+
+/* 분석 폴더 설정 진입 버튼: 액션 3개 아래 작은 보조 줄 */
+.home-folder-btn {
+  display: flex; align-items: center; gap: 6px; align-self: flex-start;
+  margin-top: 1px; padding: 4px 2px;
+  background: none; border: none; border-radius: 0;
+  color: var(--muted); font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.home-folder-btn:hover { background: none; color: var(--bar); }
+.home-folder-btn .hf-go { font-size: 12px; line-height: 1; opacity: 0.8; }
+
+/* 분석 폴더 모달: 도구별 한 행(상태 배지 + 경로 + 허용 버튼) */
+.folder-rows { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 4px; }
+.folder-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+}
+.folder-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.folder-head { display: flex; align-items: center; gap: 8px; }
+.folder-tool { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.folder-status {
+  font-size: 10.5px; font-weight: 700; line-height: 1.4;
+  padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line);
+}
+.folder-status.on { color: var(--good); border-color: #bcd6c6; background: #eef5f0; }
+.folder-status.off { color: var(--warn); border-color: #e7d3b3; background: #faf3e7; }
+.folder-status.auto { color: var(--muted); border-color: var(--line); background: #fbfaf7; }
+.folder-path {
+  font-size: 11.5px; color: var(--muted); font-family: var(--mono, ui-monospace, monospace);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.folder-btn {
+  flex: none; padding: 7px 14px; border: 1px solid var(--line); border-radius: 7px;
+  background: #fff; color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.folder-btn:hover { border-color: var(--bar); color: var(--bar); }
+.folder-btn-do { border-color: var(--ink); background: var(--ink); color: #fff; }
+.folder-btn-do:hover { background: #38383a; border-color: #38383a; color: #fff; }
 
 /* 안내 푸터: 남은 세로 공간을 받아 문서 하단에 안착한다 */
 .home-foot {
