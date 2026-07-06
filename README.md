@@ -1,5 +1,9 @@
 # AI 리포트
 
+![License](https://img.shields.io/github/license/JohnPrk/ai-usage-checkup)
+![Release](https://img.shields.io/github/v/release/JohnPrk/ai-usage-checkup)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
+
 Claude Code를 얼마나 잘 쓰고 있는지 진단해주는 데스크탑 앱 (Mac / Windows).
 
 내 컴퓨터의 `~/.claude/projects/*.jsonl` (최근 30일 세션 기록)을 읽어서:
@@ -53,7 +57,7 @@ src/
 ## 패키징 (mac dmg)
 
 ```bash
-npm run dist   # release/AI 리포트-0.4.0-arm64.dmg
+npm run dist   # release/AI 리포트-<버전>-arm64.dmg
 ```
 
 미서명(ad-hoc) 빌드라서 받은 쪽에서 처음 열 때 우클릭 → 열기가 필요할 수 있다.
@@ -64,3 +68,20 @@ DMG(HFS+)가 파일명을 NFD로 강제하는데 plist·asar 문자열이 NFC로
 그래서 파일명·plist·asar를 전부 NFD로 통일한다. 이름을 바꿀 때는 그냥
 새 이름을 적으면 되고, `npm run dist`가 빌드 전에 자동으로 NFD로
 정규화한다(`scripts/ensure-nfd.mjs`).
+
+<br><br>
+
+## 기여
+
+버그 제보, 기능 제안, PR을 환영한다. 작업 흐름과 건드리면 안 되는
+"오너 소유 파일" 목록은 [CONTRIBUTING.md](CONTRIBUTING.md)에 정리되어 있다.
+
+- 버그 제보·기능 제안: [이슈](https://github.com/JohnPrk/ai-usage-checkup/issues)로 올린다.
+- 보안 취약점: 공개 이슈 대신 [SECURITY.md](SECURITY.md)의 방법으로 제보한다.
+- 행동 강령: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)를 따른다.
+
+<br><br>
+
+## 라이선스
+
+[MIT](LICENSE)
