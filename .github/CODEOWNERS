@@ -11,7 +11,9 @@
 /src/core/remote.ts        @JohnPrk
 
 # 릴리스 / 서명 / 공증 (CI 시크릿·엔타이틀먼트·아이콘)
-/.github/                  @JohnPrk
+# 이슈·PR 템플릿(.github/ISSUE_TEMPLATE, pull_request_template.md)은 기여자가
+# 자유롭게 개선할 수 있도록 여기서 제외하고, 민감한 워크플로만 오너 소유로 둔다.
+/.github/workflows/        @JohnPrk
 /build/                    @JohnPrk
 
 # 배포 메타데이터 (appId·author·notarize 설정)

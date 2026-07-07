@@ -1,0 +1,57 @@
+name: 버그 제보
+description: 앱이 기대와 다르게 동작할 때
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > ⚠️ 로그나 스크린샷을 붙이기 전에, `~/.claude/projects` 세션 내용 같은
+        > 개인 정보가 섞여 있지 않은지 확인해 주세요.
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "예: macOS 15.5 / Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: 앱 버전
+      placeholder: "예: v0.9.5"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: 설치 방식
+      options:
+        - dmg
+        - 소스 빌드
+        - App Store
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 절차
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작
+      description: 에러 메시지나 스크린샷이 있으면 같이 붙여 주세요.
+    validations:
+      required: true

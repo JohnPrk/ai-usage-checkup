@@ -5,11 +5,33 @@
 ## 작업 흐름
 
 1. 이 저장소를 **포크**한다.
-2. 포크에서 작업용 **브랜치**를 판다. (`feat/...`, `fix/...`, `docs/...`)
+2. 포크에서 작업용 **브랜치**를 판다. (아래 "브랜치 이름 규칙" 참고)
 3. 변경 후 이 저장소의 `main` 으로 **Pull Request** 를 연다.
 4. 오너 리뷰 후 병합된다.
 
 커밋 메시지는 Conventional Commits(`type(scope): subject`, 명령형·소문자·마침표 없음)를 권장합니다.
+
+## 브랜치 이름 규칙
+
+`<type>/<간단한-설명>` 형식을 씁니다. `type` 은 커밋 컨벤션과 동일하게 맞추고,
+설명은 소문자 kebab-case 로 적습니다.
+
+```
+feat/codex-ranking
+fix/leaderboard-percentile
+docs/contributing-guide
+```
+
+| type | 용도 |
+| --- | --- |
+| `feat` | 새 기능 |
+| `fix` | 버그 수정 |
+| `docs` | 문서 |
+| `refactor` | 리팩터링 (동작 변화 없음) |
+| `chore` | 빌드·설정·잡무 |
+| `test` | 테스트 |
+| `perf` | 성능 |
+| `ci` | CI 설정 |
 
 ## 오너 소유 파일 — PR에서 수정하지 말 것
 
@@ -20,7 +42,7 @@
 | 경로 | 이유 |
 | --- | --- |
 | `src/core/remote.ts` | 오너의 Supabase 백엔드 연동 (URL/anon 키) |
-| `.github/` | 릴리스·서명·공증 워크플로 (CI 시크릿 참조) |
+| `.github/workflows/` | 릴리스·서명·공증 워크플로 (CI 시크릿 참조) |
 | `build/` | 서명 엔타이틀먼트·아이콘 등 서명 자산 |
 | `package.json` (`appId`·`author`·`notarize`) | 배포 메타데이터 |
 | `app-store-listing.md` | App Store 리스팅(실명·저작권) |
