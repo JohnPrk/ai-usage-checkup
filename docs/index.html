@@ -109,10 +109,10 @@
     font-size: clamp(16px, 2.2vw, 20px); color: var(--muted);
     margin: 0 auto 28px; max-width: 580px;
   }
-  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: center; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
   .btn {
     display: inline-flex; align-items: center; gap: 8px;
-    padding: 13px 24px; border-radius: 12px; font-weight: 650;
+    height: 52px; padding: 0 24px; border-radius: 12px; font-weight: 650;
     font-size: 15px; border: 1.5px solid transparent; cursor: pointer;
   }
   .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
@@ -122,8 +122,8 @@
   .mas { display: inline-flex; flex-direction: column; align-items: center; gap: 7px; }
   .mas-badge {
     display: inline-flex; align-items: center; gap: 11px;
+    height: 52px; padding: 0 20px; border-radius: 12px; cursor: pointer;
     background: var(--ink); color: var(--paper);
-    padding: 11px 20px; border-radius: 13px; cursor: pointer;
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
   }
   .mas-badge:hover { opacity: 0.9; text-decoration: none; }
@@ -226,6 +226,50 @@
   }
   .lb-pg-btn.dis { opacity: 0.4; }
   .lb-pg-info { font-size: 13px; font-weight: 700; min-width: 52px; text-align: center; }
+
+  /* 리포트 시트 레플리카 — 실제 앱(라이트 전용) 디자인·수치 그대로 고정 */
+  .appsheet {
+    max-width: 760px; margin: 0 auto; text-align: left;
+    background: #ffffff; border: 1px solid #dfddd5; border-radius: 2px;
+    padding: 8px 42px 14px; box-shadow: var(--shadow);
+    color: #1d1d1f; font-size: 13.5px; line-height: 1.65;
+  }
+  .appsheet .as-sec { padding: 20px 0 14px; border-bottom: 1px solid #dfddd5; }
+  .appsheet .as-sec:last-child { border-bottom: none; }
+  .appsheet .as-sec-title { font-size: 13.5px; font-weight: 700; margin: 0 0 12px; }
+  .appsheet .as-stats { display: flex; }
+  .appsheet .as-stat { flex: 1; padding: 2px 18px; border-left: 1px solid #dfddd5; }
+  .appsheet .as-stat:first-child { border-left: none; padding-left: 0; }
+  .appsheet .as-stat .k { font-size: 11.5px; color: #696863; margin: 0; }
+  .appsheet .as-stat .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; margin: 0; }
+  .appsheet .as-stat .v.good { color: #25683f; }
+  .appsheet .as-sub { margin-top: 18px; }
+  .appsheet .as-sub-title { font-size: 12.5px; font-weight: 600; margin: 0 0 6px; }
+  .appsheet .as-hint { font-size: 11px; color: #696863; font-weight: 400; margin-left: 4px; }
+  .appsheet .as-stack-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: #ece9e2; }
+  .appsheet .as-stack-bar .seg { height: 100%; }
+  .appsheet .as-stack-legend { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 7px; font-size: 11.5px; color: #696863; }
+  .appsheet .as-stack-legend .li { display: inline-flex; align-items: center; }
+  .appsheet .as-dot { width: 9px; height: 9px; border-radius: 2.5px; flex: none; display: inline-block; }
+  .appsheet .as-stack-legend .as-dot { width: 8px; height: 8px; margin-right: 5px; }
+  .appsheet .as-chart-name { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; margin: 4px 0 10px; }
+  .appsheet .as-usage { display: flex; align-items: center; gap: 20px; margin-top: 6px; }
+  .appsheet .as-donut { flex: 1; min-width: 0; }
+  .appsheet .as-donut svg { width: 100%; height: auto; display: block; }
+  .appsheet .as-legend { flex: none; width: 250px; min-width: 0; }
+  .appsheet .lr { display: flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 0 6px; border-bottom: 1px solid #ece9e2; }
+  .appsheet .lr:last-child { border-bottom: none; }
+  .appsheet .ln { font-weight: 600; }
+  .appsheet .lv { font-variant-numeric: tabular-nums; font-size: 12px; margin-left: auto; color: #696863; white-space: nowrap; }
+  .as-cap { text-align: center; color: var(--muted); font-size: 13.5px; margin: 16px 0 0; }
+  @media (max-width: 720px) {
+    .appsheet { padding: 4px 22px 10px; }
+    .appsheet .as-stats { flex-wrap: wrap; gap: 10px 0; }
+    .appsheet .as-stat { flex: 1 1 45%; }
+    .appsheet .as-stat:nth-child(odd) { border-left: none; padding-left: 0; }
+    .appsheet .as-usage { flex-direction: column; align-items: stretch; }
+    .appsheet .as-legend { width: auto; }
+  }
 
   /* privacy */
   .privacy-note {
@@ -423,84 +467,61 @@
 </section>
 
 <section id="report">
-  <div class="wrap">
-    <div class="split">
-      <div>
-        <p class="eyebrow">이렇게 진단해요 ② 리포트</p>
-        <h2>점수만이 아니라, 무엇을 어떻게 쓰는지까지</h2>
-        <p class="lead" style="margin-bottom:0;">세션을 작업 의도별로 자동 분류하고, 토큰과 모델 사용을 한눈에 모아 줍니다. 점수는 던져 놓기만 하지 않고, 가점·감점 근거와 세부 수치를 함께 보여 줍니다.</p>
-        <ul class="feat-list">
-          <li><b>작업 의도별 자동 분류</b> · 무슨 일에 AI를 쓰는지 묶어서 보여줘요</li>
-          <li><b>토큰 · 캐시 · 모델 믹스 집계</b> · 어디서 비용이 새는지 한눈에</li>
-          <li><b>점수 근거 공개</b> · 축 카드를 누르면 점수 기준과 세부 수치가 열려요</li>
-          <li><b>점수 여정 · PDF 저장</b> · 분석마다 스냅샷이 남아 점수 추이를 볼 수 있어요</li>
-          <li><b>Claude Code와 Codex 모두</b> · 각 도구에 맞는 기준으로 따로 진단</li>
-        </ul>
-        <div class="chips">
-          <span class="chip">기능 개발</span>
-          <span class="chip">버그 수정</span>
-          <span class="chip">학습·이해</span>
-          <span class="chip">리팩토링</span>
-          <span class="chip">글쓰기</span>
-          <span class="chip">환경 설정</span>
+  <div class="wrap" style="text-align:center;">
+    <p class="eyebrow" style="text-align:center;">이렇게 진단해요 ② 리포트</p>
+    <h2>점수만이 아니라, 무엇을 어떻게 쓰는지까지</h2>
+    <p class="lead" style="margin:0 auto 36px;">세션을 작업 의도별로 자동 분류하고, 토큰·캐시·모델 사용을 한눈에 모아 줍니다. 아래는 실제 앱 리포트의 두 섹션을 그대로 옮긴 모습입니다.</p>
+
+    <!-- 실제 앱 리포트 시트와 동일한 디자인의 레플리카 -->
+    <div class="appsheet" role="img" aria-label="앱 리포트 화면: 핵심 지표와 사용 내역">
+      <div class="as-sec">
+        <h3 class="as-sec-title">2. 핵심 지표</h3>
+        <div class="as-stats">
+          <div class="as-stat"><p class="k">총 토큰</p><p class="v">128.4M</p></div>
+          <div class="as-stat"><p class="k">캐시 적중률</p><p class="v">71%</p></div>
+          <div class="as-stat"><p class="k">캐시로 아낀 비용</p><p class="v good">$184.50</p></div>
+          <div class="as-stat"><p class="k">사용자 중단</p><p class="v">23회</p></div>
+          <div class="as-stat"><p class="k">평균 세션 길이</p><p class="v">34분</p></div>
+        </div>
+        <div class="as-sub">
+          <h4 class="as-sub-title">모델 비중 <span class="as-hint">토큰 기준</span></h4>
+          <div class="as-stack-bar">
+            <div class="seg" style="width:61%;background:#5b7fab"></div>
+            <div class="seg" style="width:26%;background:#5f9576"></div>
+            <div class="seg" style="width:13%;background:#c39a63"></div>
+          </div>
+          <div class="as-stack-legend">
+            <span class="li"><span class="as-dot" style="background:#5b7fab"></span>Opus 61% · 78.3M</span>
+            <span class="li"><span class="as-dot" style="background:#5f9576"></span>Sonnet 26% · 33.4M</span>
+            <span class="li"><span class="as-dot" style="background:#c39a63"></span>Haiku 13% · 16.7M</span>
+          </div>
         </div>
       </div>
-      <div class="mock" aria-label="사용 내역 분류와 모델 믹스 예시">
-        <svg viewBox="0 0 460 360" role="img">
-          <rect class="m-card" x="1" y="1" width="458" height="358" rx="16" stroke-width="1.5"/>
-          <text class="m-ink" x="28" y="42" font-size="15" font-weight="750">사용 내역</text>
-          <text class="m-muted" x="28" y="62" font-size="11.5">최근 30일 · 작업 의도별</text>
-
-          <!-- intent stacked bars -->
-          <g font-size="11.5">
-            <g transform="translate(0,92)">
-              <text class="m-ink" x="28" y="0" font-weight="600">기능 개발</text>
-              <rect class="m-line-soft" x="150" y="-10" width="236" height="9" rx="4.5"/>
-              <rect class="m-bar" x="150" y="-10" width="147" height="9" rx="4.5"/>
-              <text class="m-muted" x="432" y="0" text-anchor="end">42%</text>
-            </g>
-            <g transform="translate(0,120)">
-              <text class="m-ink" x="28" y="0" font-weight="600">학습·이해</text>
-              <rect class="m-line-soft" x="150" y="-10" width="236" height="9" rx="4.5"/>
-              <rect class="m-bar" x="150" y="-10" width="92" height="9" rx="4.5"/>
-              <text class="m-muted" x="432" y="0" text-anchor="end">26%</text>
-            </g>
-            <g transform="translate(0,148)">
-              <text class="m-ink" x="28" y="0" font-weight="600">리팩토링</text>
-              <rect class="m-line-soft" x="150" y="-10" width="236" height="9" rx="4.5"/>
-              <rect class="m-bar" x="150" y="-10" width="64" height="9" rx="4.5"/>
-              <text class="m-muted" x="432" y="0" text-anchor="end">18%</text>
-            </g>
-            <g transform="translate(0,176)">
-              <text class="m-ink" x="28" y="0" font-weight="600">글쓰기 · 기타</text>
-              <rect class="m-line-soft" x="150" y="-10" width="236" height="9" rx="4.5"/>
-              <rect class="m-bar" x="150" y="-10" width="50" height="9" rx="4.5"/>
-              <text class="m-muted" x="432" y="0" text-anchor="end">14%</text>
-            </g>
-          </g>
-
-          <line class="m-line" x1="28" y1="210" x2="432" y2="210" stroke-width="1"/>
-
-          <!-- token / cache / model -->
-          <g font-size="11.5">
-            <text class="m-muted" x="28" y="244">입력 토큰</text>
-            <text class="m-ink" x="28" y="266" font-size="18" font-weight="800">8.4M</text>
-            <text class="m-muted" x="172" y="244">캐시 적중률</text>
-            <text class="m-good" x="172" y="266" font-size="18" font-weight="800">71%</text>
-            <text class="m-muted" x="316" y="244">주 모델</text>
-            <text class="m-ink" x="316" y="266" font-size="18" font-weight="800">Opus</text>
-          </g>
-          <g font-size="11" transform="translate(0,300)">
-            <text class="m-muted" x="28" y="0">모델 믹스</text>
-            <rect class="m-line-soft" x="28" y="12" width="404" height="10" rx="5"/>
-            <rect class="m-bar" x="28" y="12" width="248" height="10" rx="5"/>
-            <rect class="m-good" x="276" y="12" width="104" height="10" rx="0"/>
-            <rect class="m-warn" x="380" y="12" width="52" height="10" rx="5"/>
-            <text class="m-muted" x="28" y="40">Opus 61% · Sonnet 26% · Haiku 13%</text>
-          </g>
-        </svg>
+      <div class="as-sec">
+        <h3 class="as-sec-title">3. 사용 내역</h3>
+        <p class="as-chart-name">작업 의도별 세션</p>
+        <div class="as-usage">
+          <div class="as-donut"><svg viewBox="-19.0 -87.8 728.0 585.7" role="img">
+            <g transform="rotate(-90 345 205)"><circle r="180" cx="345" cy="205" fill="none" stroke="#5b7fab" stroke-width="64" stroke-dasharray="473.16 1130.97" stroke-dashoffset="0.00"/><circle r="180" cx="345" cy="205" fill="none" stroke="#5f9576" stroke-width="64" stroke-dasharray="292.59 1130.97" stroke-dashoffset="-474.76"/><circle r="180" cx="345" cy="205" fill="none" stroke="#c39a63" stroke-width="64" stroke-dasharray="201.87 1130.97" stroke-dashoffset="-768.96"/><circle r="180" cx="345" cy="205" fill="none" stroke="#bd7268" stroke-width="64" stroke-dasharray="89.12 1130.97" stroke-dashoffset="-972.43"/><circle r="180" cx="345" cy="205" fill="none" stroke="#a8a59c" stroke-width="64" stroke-dasharray="66.22 1130.97" stroke-dashoffset="-1063.15"/></g>
+            <text x="345" y="213" text-anchor="middle" font-size="54" font-weight="700" fill="#1d1d1f">1,284</text>
+            <text x="345" y="237" text-anchor="middle" font-size="20" fill="#696863">세션</text>
+            <polyline points="554.2,151.1 608.4,137.2 622.4,137.2" fill="none" stroke="#5b7fab" stroke-width="1.3" opacity="0.75"/><text x="663.3" y="132.6" text-anchor="middle" font-size="20" font-weight="700" fill="#1d1d1f">42%</text><text x="663.3" y="155.0" text-anchor="middle" font-size="19" font-weight="500" fill="#1d1d1f">기능 개발</text>
+            <polyline points="278.5,410.5 261.2,463.8 247.2,463.8" fill="none" stroke="#5f9576" stroke-width="1.3" opacity="0.75"/><text x="204.5" y="459.2" text-anchor="middle" font-size="20" font-weight="700" fill="#1d1d1f">26%</text><text x="204.5" y="481.6" text-anchor="middle" font-size="19" font-weight="500" fill="#1d1d1f">학습·이해</text>
+            <polyline points="130.7,178.1 75.1,171.1 61.1,171.1" fill="none" stroke="#c39a63" stroke-width="1.3" opacity="0.75"/><text x="23.1" y="166.6" text-anchor="middle" font-size="20" font-weight="700" fill="#1d1d1f">18%</text><text x="23.1" y="189.0" text-anchor="middle" font-size="19" font-weight="500" fill="#1d1d1f">리팩토링</text>
+            <polyline points="218.0,30.3 185.0,-15.0 171.0,-13.9" fill="none" stroke="#bd7268" stroke-width="1.3" opacity="0.75"/><text x="142.5" y="-18.4" text-anchor="middle" font-size="20" font-weight="700" fill="#1d1d1f">8%</text><text x="142.5" y="4.0" text-anchor="middle" font-size="19" font-weight="500" fill="#1d1d1f">글쓰기</text>
+            <polyline points="304.5,-7.2 294.1,-62.2 280.1,-62.2" fill="none" stroke="#a8a59c" stroke-width="1.3" opacity="0.75"/><text x="261.1" y="-66.7" text-anchor="middle" font-size="20" font-weight="700" fill="#1d1d1f">6%</text><text x="261.1" y="-44.3" text-anchor="middle" font-size="19" font-weight="500" fill="#1d1d1f">기타</text>
+          </svg></div>
+          <div class="as-legend">
+            <div class="lr"><span class="as-dot" style="background:#5b7fab"></span><span class="ln">기능 개발</span><span class="lv">42%(539회)</span></div>
+            <div class="lr"><span class="as-dot" style="background:#5f9576"></span><span class="ln">학습·이해</span><span class="lv">26%(334회)</span></div>
+            <div class="lr"><span class="as-dot" style="background:#c39a63"></span><span class="ln">리팩토링</span><span class="lv">18%(231회)</span></div>
+            <div class="lr"><span class="as-dot" style="background:#bd7268"></span><span class="ln">글쓰기</span><span class="lv">8%(103회)</span></div>
+            <div class="lr"><span class="as-dot" style="background:#a8a59c"></span><span class="ln">기타</span><span class="lv">6%(77회)</span></div>
+          </div>
+        </div>
       </div>
     </div>
+    <p class="as-cap">실제 앱 리포트 화면 그대로 · 이 밖에 일별 토큰 차트, 축별 점수 근거, 점수 여정, PDF 저장이 함께 담깁니다.</p>
   </div>
 </section>
 
