@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 취약점 제보
+    url: https://github.com/JohnPrk/ai-usage-checkup/blob/main/SECURITY.md
+    about: 보안 취약점은 공개 이슈로 올리지 말고, 보안 정책의 제보 절차를 따라 주세요.
