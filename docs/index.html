@@ -106,8 +106,8 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .hero p.tagline {
-    font-size: clamp(16px, 2.2vw, 20px); color: var(--muted);
-    margin: 0 auto 28px; max-width: 580px;
+    font-size: clamp(13.5px, 1.8vw, 18px); color: var(--muted);
+    margin: 0 auto 28px; max-width: none;
   }
   .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
   .btn {
@@ -119,7 +119,6 @@
   .btn-ghost:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 
   /* mac app store badge */
-  .mas { display: inline-flex; flex-direction: column; align-items: center; gap: 7px; }
   .mas-badge {
     display: inline-flex; align-items: center; gap: 11px;
     height: 52px; padding: 0 20px; border-radius: 12px; cursor: pointer;
@@ -128,24 +127,11 @@
   }
   .mas-badge:hover { opacity: 0.9; text-decoration: none; }
   .mas-badge svg { fill: var(--paper); }
-  .mas-badge .t1 { font-size: 10.5px; opacity: 0.78; line-height: 1.1; letter-spacing: 0.02em; }
   .mas-badge .t2 { font-size: 17px; font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
-  .mas-note { font-size: 12.5px; color: var(--muted); }
+  .mas-note { display: block; font-size: 12.5px; color: var(--muted); text-align: center; margin: 14px 0 0; }
 
-  /* hero mock */
-  .hero-mock { margin: 52px auto 0; max-width: 540px; }
-  .mock svg { display: block; width: 100%; height: auto;
-    filter: drop-shadow(0 24px 60px rgba(40, 40, 60, 0.16)); border-radius: 18px; }
-  .mock text { font-family: inherit; }
-  .m-card { fill: var(--paper); stroke: var(--line); }
-  .m-ink { fill: var(--ink); }
-  .m-muted { fill: var(--muted); }
-  .m-line { stroke: var(--line); }
-  .m-line-soft { fill: var(--line-soft); }
-  .m-bar { fill: var(--accent); }
-  .m-warn { fill: var(--warn); }
-  .m-good { fill: var(--good); }
-  .m-accent-soft { fill: var(--accent-soft); }
+  /* hero: 실제 앱 '1. 종합 판정' 화면 레플리카 */
+  .hero-mock { margin: 52px auto 0; max-width: 880px; text-align: left; }
 
   /* generic grids */
   .grid { display: grid; gap: 16px; }
@@ -262,6 +248,68 @@
   .appsheet .ln { font-weight: 600; }
   .appsheet .lv { font-variant-numeric: tabular-nums; font-size: 12px; margin-left: auto; color: #696863; white-space: nowrap; }
   .as-cap { text-align: center; color: var(--muted); font-size: 13.5px; margin: 16px 0 0; }
+
+  /* 종합 판정: 문서 머리 + 등수 줄 + 레이더/축 그리드 (앱 style.css 수치 그대로) */
+  .appsheet .as-dochead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 22px 0 14px; border-bottom: 1px solid #dfddd5; }
+  .appsheet .as-h1 { font-size: 24px; font-weight: 750; letter-spacing: -0.4px; line-height: 1.2; margin: 0; }
+  .appsheet .as-meta { font-size: 12.5px; color: #696863; margin: 3px 0 0; }
+  .appsheet .as-dochead-r { text-align: right; font-size: 12px; color: #696863; display: flex; flex-direction: column; gap: 3px; flex: none; }
+  .appsheet .as-level { font-size: 19px; font-weight: 700; margin: 0 0 12px; }
+  .appsheet .as-level .lvd { font-size: 13px; font-weight: 400; color: #696863; }
+  .appsheet .as-judge { display: grid; grid-template-columns: 300px 1fr; gap: 22px; align-items: center; }
+  .appsheet .as-radar svg { width: 100%; height: auto; display: block; }
+  .appsheet .axis-item { padding: 6px 0; border-bottom: 1px solid #ece9e2; }
+  .appsheet .axis-item:last-child { border-bottom: none; }
+  .appsheet .axis-row { display: grid; grid-template-columns: 118px 1fr auto auto; gap: 12px; align-items: center; font-size: 12.5px; padding: 4px 0; }
+  .appsheet .axis-row .track { height: 6px; background: #ece9e2; border-radius: 3px; overflow: hidden; }
+  .appsheet .axis-row .fill { height: 100%; background: #3c5374; border-radius: 3px; }
+  .appsheet .axis-row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .appsheet .axis-detail { color: #696863; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .appsheet .axis-sub { font-size: 11px; color: #696863; margin-top: 2px; }
+
+  /* 설정 자산 · 기능 활용: 공식 기능 커버리지 + 3장의 인벤토리 카드 */
+  .appsheet .feat-cov { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #ece9e2; }
+  .appsheet .fc-title { font-size: 12.5px; font-weight: 700; display: block; margin-bottom: 10px; }
+  .appsheet .fc-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: #ece9e2; margin: 2px 0 16px; }
+  .appsheet .fc-seg { height: 100%; min-width: 6px; }
+  .appsheet .fc-seg.on { background: #3c5374; }
+  .appsheet .fc-seg.mid { background: #9aa7bb; }
+  .appsheet .fc-seg.off { background: #dfddd5; }
+  .appsheet .fc-groups { display: flex; flex-direction: column; gap: 11px; }
+  .appsheet .fc-group { display: flex; align-items: flex-start; gap: 12px; }
+  .appsheet .fc-glabel { flex: 0 0 92px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding-top: 3px; }
+  .appsheet .fc-glabel b { margin-left: 2px; font-weight: 600; color: #696863; }
+  .appsheet .fc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .appsheet .fc-glabel.on .fc-dot { background: #3c5374; }
+  .appsheet .fc-glabel.mid .fc-dot { background: #9aa7bb; }
+  .appsheet .fc-glabel.off .fc-dot { background: transparent; border: 1.5px solid #dfddd5; }
+  .appsheet .fc-chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+  .appsheet .fc-chip { font-size: 11.5px; padding: 3px 9px; border-radius: 5px; border: 1px solid #dfddd5; background: #fff; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .appsheet .fc-chip.on { background: #eef1f6; border-color: #d4ddea; color: #3c5374; font-weight: 600; }
+  .appsheet .fc-chip.off { background: #faf9f6; border-color: #ece9e2; color: #696863; }
+  .appsheet .fc-chip .fc-n { opacity: 0.7; font-weight: 400; margin-left: 1px; }
+  .appsheet .as-cols3 { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 14px; align-items: start; }
+  .appsheet .as-cols3 > * { min-width: 0; }
+  .appsheet .inv-title { font-size: 12.5px; font-weight: 600; margin: 0 0 6px; }
+  .appsheet .inv-col { background: #fbfaf7; border: 1px solid #ece9e2; border-radius: 6px; padding: 12px 14px 10px; }
+  .appsheet .inv-sum { font-size: 11px; color: #696863; padding-bottom: 6px; margin: 0 0 4px; border-bottom: 1px dashed #dfddd5; }
+  .appsheet .inv-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3.5px 0; border-bottom: 1px solid #ece9e2; }
+  .appsheet .inv-row:last-child { border-bottom: none; }
+  .appsheet .inv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .appsheet .inv-name.dim-name { color: #696863; }
+  .appsheet .inv-val { flex-shrink: 0; margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .appsheet .inv-val.ok { color: #3c5374; font-weight: 600; }
+  .appsheet .inv-val.dim { color: #696863; }
+  .appsheet .st { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .appsheet .st.on { background: #3c5374; }
+  .appsheet .st.off { background: transparent; border: 1.5px solid #3c5374; }
+  .appsheet .s-track { flex: 1; min-width: 28px; height: 5px; background: #ece9e2; border-radius: 3px; overflow: hidden; }
+  .appsheet .s-fill { height: 100%; background: #5b5a8c; border-radius: 3px; }
+  .appsheet .hook-chip { display: flex; align-items: center; gap: 8px; padding: 4.5px 0; border-bottom: 1px solid #ece9e2; }
+  .appsheet .hook-chip:last-child { border-bottom: none; }
+  .appsheet .hk-event { font-size: 10.5px; font-weight: 700; color: #3c5374; background: #e9edf3; border-radius: 4px; padding: 1px 7px; flex: none; }
+  .appsheet .hk-cmd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; color: #56544d; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   @media (max-width: 720px) {
     .appsheet { padding: 4px 22px 10px; }
     .appsheet .as-stats { flex-wrap: wrap; gap: 10px 0; }
@@ -269,6 +317,8 @@
     .appsheet .as-stat:nth-child(odd) { border-left: none; padding-left: 0; }
     .appsheet .as-usage { flex-direction: column; align-items: stretch; }
     .appsheet .as-legend { width: auto; }
+    .appsheet .as-judge, .appsheet .as-cols3 { grid-template-columns: 1fr; }
+    .appsheet .axis-row { grid-template-columns: 96px 1fr auto auto; gap: 8px; }
   }
 
   /* privacy */
@@ -285,9 +335,8 @@
   }
 
   /* final cta */
-  .final { text-align: center; }
-  .final h2 { max-width: 640px; margin: 0 auto 14px; }
-  .final .lead { margin: 0 auto 30px; }
+  .final h2 { max-width: 640px; margin: 0 0 14px; }
+  .final .lead { margin: 0 0 30px; }
 
   /* footer */
   footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
@@ -318,109 +367,141 @@
 
 <header class="hero">
   <div class="wrap">
-    <span class="eyebrow">AI 코딩 습관 진단 · macOS</span>
+    <span class="eyebrow">AI 코딩 습관 진단</span>
     <h1>내가 AI를, <span class="grad">잘 쓰고 있는 걸까?</span></h1>
     <p class="tagline">Claude Code와 Codex 사용 기록을 읽어 6개 축으로 점수를 매기고, 왜 그 점수인지 근거까지 보여주는 데스크탑 앱.</p>
 
     <div class="cta">
-      <div class="mas">
-        <a class="mas-badge" id="mas-badge" href="https://apps.apple.com/kr/app/ai-%EB%A6%AC%ED%8F%AC%ED%8A%B8/id6780314426?mt=12" aria-label="Mac App Store에서 무료 다운로드">
-          <svg width="22" height="26" viewBox="0 0 22 26" aria-hidden="true">
-            <path d="M17.05 14.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13z M14.62 6.84c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44z"/>
-          </svg>
-          <span>
-            <span class="t1">무료 다운로드</span><br>
-            <span class="t2">Mac App Store</span>
-          </span>
-        </a>
-        <span class="mas-note">macOS (Apple Silicon) · 무료 · 오픈소스 (MIT)</span>
-      </div>
-      <a class="btn btn-ghost" href="https://github.com/JohnPrk/ai-usage-checkup/releases/latest">macOS .dmg 다운로드</a>
+      <a class="mas-badge" id="mas-badge" href="https://apps.apple.com/kr/app/ai-%EB%A6%AC%ED%8F%AC%ED%8A%B8/id6780314426?mt=12" aria-label="Mac App Store에서 다운로드">
+        <svg width="22" height="26" viewBox="0 0 22 26" aria-hidden="true">
+          <path d="M17.05 14.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13z M14.62 6.84c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44z"/>
+        </svg>
+        <span class="t2">Mac App Store</span>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/JohnPrk/ai-usage-checkup/releases/latest">Windows 다운로드</a>
     </div>
+    <p class="mas-note">macOS (Apple Silicon) · 무료 · 오픈소스 (MIT)</p>
 
-    <div class="hero-mock mock" aria-label="AI 리포트 분석 결과 예시 화면">
-      <svg viewBox="0 0 540 500" role="img">
-        <!-- card -->
-        <rect class="m-card" x="1" y="1" width="538" height="498" rx="18" stroke-width="1.5"/>
-        <!-- doc head -->
-        <text class="m-ink" x="34" y="50" font-size="21" font-weight="800" letter-spacing="-0.4">AI 리포트</text>
-        <text class="m-muted" x="34" y="70" font-size="12">Claude Code · 최근 30일 · 1,284개 세션</text>
-        <g transform="translate(506,38)" text-anchor="end">
-          <text class="m-muted" x="0" y="0" font-size="11.5">2026.06.17</text>
-          <text class="m-muted" x="0" y="18" font-size="11.5">👤 tinho</text>
-        </g>
-        <line class="m-line" x1="34" y1="84" x2="506" y2="84" stroke-width="2"/>
-
-        <!-- overall -->
-        <text class="m-muted" x="34" y="116" font-size="12" font-weight="700" letter-spacing="0.06em">종합 점수</text>
-        <text class="m-ink" x="34" y="158" font-size="46" font-weight="850" letter-spacing="-1">77</text>
-        <text class="m-muted" x="92" y="158" font-size="16" font-weight="600">/ 100</text>
-        <rect class="m-accent-soft" x="300" y="120" width="206" height="44" rx="10"/>
-        <text class="m-ink" x="403" y="138" font-size="12.5" font-weight="700" text-anchor="middle">1,284명 중 312위</text>
-        <text class="m-muted" x="403" y="154" font-size="11.5" text-anchor="middle">상위 24% · 마스터</text>
-
-        <!-- axis rows -->
-        <g font-size="12.5">
-          <!-- row template: label / track / fill / value -->
-          <g transform="translate(0,196)">
-            <text class="m-ink" x="34" y="0" font-weight="600">프롬프트 구체성</text>
-            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
-            <rect class="m-bar" x="210" y="-11" width="201" height="7" rx="3.5"/>
-            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">78</text>
-          </g>
-          <g transform="translate(0,230)">
-            <text class="m-ink" x="34" y="0" font-weight="600">학습 주도성</text>
-            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
-            <rect class="m-bar" x="210" y="-11" width="224" height="7" rx="3.5"/>
-            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">87</text>
-          </g>
-          <g transform="translate(0,264)">
-            <text class="m-ink" x="34" y="0" font-weight="600">오류 회복·수렴</text>
-            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
-            <rect class="m-bar" x="210" y="-11" width="204" height="7" rx="3.5"/>
-            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">79</text>
-          </g>
-          <g transform="translate(0,298)">
-            <text class="m-ink" x="34" y="0" font-weight="600">컨텍스트 운용</text>
-            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
-            <rect class="m-bar" x="210" y="-11" width="217" height="7" rx="3.5"/>
-            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">84</text>
-          </g>
-          <g transform="translate(0,332)">
-            <text class="m-ink" x="34" y="0" font-weight="600">비용·캐시 효율</text>
-            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
-            <rect class="m-bar" x="210" y="-11" width="183" height="7" rx="3.5"/>
-            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">71</text>
-          </g>
-          <g transform="translate(0,366)">
-            <text class="m-ink" x="34" y="0" font-weight="600">기능 활용도</text>
-            <rect class="m-line-soft" x="210" y="-11" width="258" height="7" rx="3.5"/>
-            <rect class="m-warn" x="210" y="-11" width="160" height="7" rx="3.5"/>
-            <text class="m-ink" x="506" y="0" text-anchor="end" font-weight="700">62</text>
-          </g>
-        </g>
-
-        <line class="m-line" x1="34" y1="398" x2="506" y2="398" stroke-width="1"/>
-        <!-- score evidence hint -->
-        <circle class="m-warn" cx="40" cy="430" r="4"/>
-        <text class="m-muted" x="54" y="434" font-size="12.5">기능 활용도 62 · 공식 기능 18개 중 9개 사용, 검색·편집에 쏠림</text>
-        <circle class="m-bar" cx="40" cy="456" r="4"/>
-        <text class="m-muted" x="54" y="460" font-size="12.5">축 카드를 누르면 "왜 이 점수인지" 가점·감점 근거가 열립니다</text>
-      </svg>
+    <!-- 실제 앱 '1. 종합 판정' 화면과 동일한 디자인의 레플리카 -->
+    <div class="hero-mock">
+      <div class="appsheet" role="img" aria-label="앱 리포트 화면: 1. 종합 판정 — 6축 레이더 차트와 축별 점수">
+        <div class="as-dochead">
+          <div>
+            <h3 class="as-h1">AI 리포트</h3>
+            <p class="as-meta">Claude Code 사용 습관 진단</p>
+          </div>
+          <div class="as-dochead-r">
+            <span>분석일 2026-07-07</span>
+            <span>세션 1,284개(최근 30일)</span>
+            <span>👤 tinho</span>
+          </div>
+        </div>
+        <div class="as-sec">
+          <h3 class="as-sec-title">1. 종합 판정</h3>
+          <p class="as-level">1,284명 중 312위 · 상위 24% <span class="lvd">· 평균 77점</span></p>
+          <div class="as-judge">
+            <div class="as-radar">
+              <svg viewBox="0 0 320 244" role="img" aria-label="6축 점수 레이더 차트">
+                <polygon points="160.0,44.0 227.5,83.0 227.5,161.0 160.0,200.0 92.5,161.0 92.5,83.0" fill="#fbfaf7" stroke="#dfddd5" stroke-width="1"/>
+                <polygon points="160.0,63.5 210.7,92.8 210.7,151.3 160.0,180.5 109.3,151.3 109.3,92.8" fill="none" stroke="#dfddd5" stroke-width="1"/>
+                <polygon points="160.0,83.0 193.8,102.5 193.8,141.5 160.0,161.0 126.2,141.5 126.2,102.5" fill="none" stroke="#dfddd5" stroke-width="1"/>
+                <polygon points="160.0,102.5 176.9,112.3 176.9,131.8 160.0,141.5 143.1,131.8 143.1,112.3" fill="none" stroke="#dfddd5" stroke-width="1"/>
+                <line x1="160" y1="122" x2="160.0" y2="44.0" stroke="#ece9e2" stroke-width="1"/>
+                <line x1="160" y1="122" x2="227.5" y2="83.0" stroke="#ece9e2" stroke-width="1"/>
+                <line x1="160" y1="122" x2="227.5" y2="161.0" stroke="#ece9e2" stroke-width="1"/>
+                <line x1="160" y1="122" x2="160.0" y2="200.0" stroke="#ece9e2" stroke-width="1"/>
+                <line x1="160" y1="122" x2="92.5" y2="161.0" stroke="#ece9e2" stroke-width="1"/>
+                <line x1="160" y1="122" x2="92.5" y2="83.0" stroke="#ece9e2" stroke-width="1"/>
+                <polygon points="160.0,61.2 218.8,88.1 213.4,152.8 160.0,187.5 112.0,149.7 118.1,97.8" fill="rgba(60,83,116,0.16)" stroke="#3c5374" stroke-width="1.6"/>
+                <circle cx="160.0" cy="61.2" r="2.4" fill="#3c5374"/>
+                <circle cx="218.8" cy="88.1" r="2.4" fill="#3c5374"/>
+                <circle cx="213.4" cy="152.8" r="2.4" fill="#3c5374"/>
+                <circle cx="160.0" cy="187.5" r="2.4" fill="#3c5374"/>
+                <circle cx="112.0" cy="149.7" r="2.4" fill="#3c5374"/>
+                <circle cx="118.1" cy="97.8" r="2.4" fill="#3c5374"/>
+                <text x="160" y="29" text-anchor="middle" font-size="10.5" fill="#1d1d1f">프롬프트 구체성</text>
+                <text x="238.8" y="80.5" text-anchor="start" font-size="10.5" fill="#1d1d1f">학습 주도성</text>
+                <text x="238.8" y="175.5" text-anchor="start" font-size="10.5" fill="#1d1d1f">오류 회복·수렴</text>
+                <text x="160" y="221" text-anchor="middle" font-size="10.5" fill="#1d1d1f">컨텍스트 운용</text>
+                <text x="81.2" y="175.5" text-anchor="end" font-size="10.5" fill="#1d1d1f">비용·캐시 효율</text>
+                <text x="81.2" y="80.5" text-anchor="end" font-size="10.5" fill="#1d1d1f">기능 활용도</text>
+              </svg>
+            </div>
+            <div>
+              <div class="axis-item">
+                <div class="axis-row">
+                  <span>프롬프트 구체성</span>
+                  <div class="track"><div class="fill" style="width:78%"></div></div>
+                  <span class="val">78점</span>
+                  <span class="axis-detail">상세 보기 ›</span>
+                </div>
+                <div class="axis-sub">요청에 맥락·제약을 담아 의도를 한 번에 전달하는가</div>
+              </div>
+              <div class="axis-item">
+                <div class="axis-row">
+                  <span>학습 주도성</span>
+                  <div class="track"><div class="fill" style="width:87%"></div></div>
+                  <span class="val">87점</span>
+                  <span class="axis-detail">상세 보기 ›</span>
+                </div>
+                <div class="axis-sub">받은 답을 그대로 두지 않고 꼬리질문으로 파고드는가</div>
+              </div>
+              <div class="axis-item">
+                <div class="axis-row">
+                  <span>오류 회복·수렴</span>
+                  <div class="track"><div class="fill" style="width:79%"></div></div>
+                  <span class="val">79점</span>
+                  <span class="axis-detail">상세 보기 ›</span>
+                </div>
+                <div class="axis-sub">AI 작업이 실패했을 때(오류) 끝까지 잡아 해결하는가</div>
+              </div>
+              <div class="axis-item">
+                <div class="axis-row">
+                  <span>컨텍스트 운용</span>
+                  <div class="track"><div class="fill" style="width:84%"></div></div>
+                  <span class="val">84점</span>
+                  <span class="axis-detail">상세 보기 ›</span>
+                </div>
+                <div class="axis-sub">대화가 커지기 전에 compact·clear로 끊어 토큰 낭비를 막는가</div>
+              </div>
+              <div class="axis-item">
+                <div class="axis-row">
+                  <span>비용·캐시 효율</span>
+                  <div class="track"><div class="fill" style="width:71%"></div></div>
+                  <span class="val">71점</span>
+                  <span class="axis-detail">상세 보기 ›</span>
+                </div>
+                <div class="axis-sub">같은 컨텍스트를 다시 계산하지 않고 캐시에서 읽는 비율</div>
+              </div>
+              <div class="axis-item">
+                <div class="axis-row">
+                  <span>기능 활용도</span>
+                  <div class="track"><div class="fill" style="width:62%"></div></div>
+                  <span class="val">62점</span>
+                  <span class="axis-detail">상세 보기 ›</span>
+                </div>
+                <div class="axis-sub">공식 기능을 내 작업에 맞게, 한쪽에 치우치지 않고 두루 쓰는가</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="as-cap">실제 앱 리포트 화면 그대로 · 축마다 '상세 보기'를 누르면 가점·감점 근거 수치가 열립니다</p>
     </div>
   </div>
 </header>
 
 <section id="why">
-  <div class="wrap" style="text-align:center; max-width:760px;">
-    <p class="eyebrow" style="text-align:center;">The Problem</p>
+  <div class="wrap">
+    <p class="eyebrow">The Problem</p>
     <h2>AI랑 매일 일하는데, 정작 잘 쓰는지는 아무도 안 알려줘요</h2>
-    <p class="lead" style="margin:0 auto 18px; max-width:none;">실력은 도구를 쓰는 습관에서 갈립니다. 프롬프트를 얼마나 또렷하게 적는지, 받은 답에 꼬리질문을 이어가는지, 오류가 난 작업을 끝까지 매듭짓는지, 같은 맥락을 캐시로 아껴 쓰는지. 그런데 이걸 옆에서 봐 주는 사람은 없습니다.</p>
-    <p class="lead" style="margin:0 auto 18px; max-width:none;">다행히 답은 이미 내 컴퓨터에 있습니다. Claude Code와 Codex는 모든 세션을 로그 파일로 남기고, 그 안에 위 습관의 신호가 전부 들어 있습니다. AI 리포트는 이 로그를 읽어 습관을 숫자로 바꿔 보여 줍니다.</p>
-    <p class="lead" style="margin:0 auto; max-width:none;">원본 로그는 기본 30일이 지나면 지워집니다. 대신 분석할 때마다 스냅샷이 남으니, 오늘 받은 점수가 장기 추이의 출발점이 됩니다.</p>
-    <div class="chips" style="justify-content:center; margin-top:22px;">
-      <span class="chip">~/.claude/projects/**/*.jsonl</span>
-      <span class="chip">~/.codex/sessions/**/rollout-*.jsonl</span>
+    <p class="lead" style="margin:0 0 18px;">실력은 도구를 쓰는 습관에서 갈립니다. 프롬프트를 얼마나 또렷하게 적는지, 받은 답에 꼬리질문을 이어가는지, 오류가 난 작업을 끝까지 매듭짓는지, 같은 맥락을 캐시로 아껴 쓰는지. 그런데 이걸 옆에서 봐 주는 사람은 없습니다.</p>
+    <p class="lead" style="margin:0 0 18px;">다행히 답은 이미 내 컴퓨터에 있습니다. Claude Code와 Codex는 모든 세션을 로그 파일로 남기고, 그 안에 위 습관의 신호가 전부 들어 있습니다. AI 리포트는 이 로그를 읽어 습관을 숫자로 바꿔 보여 줍니다.</p>
+    <p class="lead" style="margin:0;">원본 로그는 기본 30일이 지나면 지워집니다. 대신 분석할 때마다 스냅샷이 남으니, 오늘 받은 점수가 장기 추이의 출발점이 됩니다.</p>
+    <div class="chips" style="justify-content:flex-end; align-items:center; margin-top:22px;">
+      <span style="font-size:12.5px; color:var(--muted);">대화가 기록된 위치 :</span>
+      <span class="chip" style="font-size:12px; padding:3px 10px;">~/.claude/projects/**/*.jsonl</span>
+      <span class="chip" style="font-size:12px; padding:3px 10px;">~/.codex/sessions/**/rollout-*.jsonl</span>
     </div>
   </div>
 </section>
@@ -467,13 +548,13 @@
 </section>
 
 <section id="report">
-  <div class="wrap" style="text-align:center;">
-    <p class="eyebrow" style="text-align:center;">이렇게 진단해요 ② 리포트</p>
+  <div class="wrap">
+    <p class="eyebrow">이렇게 진단해요 ② 리포트</p>
     <h2>점수만이 아니라, 무엇을 어떻게 쓰는지까지</h2>
-    <p class="lead" style="margin:0 auto 36px;">세션을 작업 의도별로 자동 분류하고, 토큰·캐시·모델 사용을 한눈에 모아 줍니다. 아래는 실제 앱 리포트의 두 섹션을 그대로 옮긴 모습입니다.</p>
+    <p class="lead" style="margin:0 0 36px;">세션을 작업 의도별로 자동 분류하고, 토큰·캐시·모델 사용을 한눈에 모아 줍니다. 아래는 실제 앱 리포트의 세 섹션을 그대로 옮긴 모습입니다.</p>
 
     <!-- 실제 앱 리포트 시트와 동일한 디자인의 레플리카 -->
-    <div class="appsheet" role="img" aria-label="앱 리포트 화면: 핵심 지표와 사용 내역">
+    <div class="appsheet" role="img" aria-label="앱 리포트 화면: 핵심 지표·사용 내역·설정 자산">
       <div class="as-sec">
         <h3 class="as-sec-title">2. 핵심 지표</h3>
         <div class="as-stats">
@@ -520,16 +601,91 @@
           </div>
         </div>
       </div>
+      <div class="as-sec">
+        <h3 class="as-sec-title">4. 설정 자산 · 기능 활용</h3>
+        <div class="feat-cov">
+          <span class="fc-title">공식 기능 활용</span>
+          <div class="fc-bar">
+            <div class="fc-seg on" style="flex:6" title="자주 사용 6개"></div>
+            <div class="fc-seg mid" style="flex:3" title="가끔 사용 3개"></div>
+            <div class="fc-seg off" style="flex:9" title="미사용 9개"></div>
+          </div>
+          <div class="fc-groups">
+            <div class="fc-group">
+              <div class="fc-glabel on"><span class="fc-dot"></span>자주 사용<b>6</b></div>
+              <div class="fc-chips">
+                <span class="fc-chip on">CLAUDE.md <span class="fc-n">보유</span></span>
+                <span class="fc-chip on">스킬 <span class="fc-n">43회</span></span>
+                <span class="fc-chip on">훅 <span class="fc-n">3개</span></span>
+                <span class="fc-chip on">MCP <span class="fc-n">318회 · 자동</span></span>
+                <span class="fc-chip on">할 일 추적 <span class="fc-n">96회 · 자동</span></span>
+                <span class="fc-chip on">컨텍스트 관리 <span class="fc-n">41회</span></span>
+              </div>
+            </div>
+            <div class="fc-group">
+              <div class="fc-glabel mid"><span class="fc-dot"></span>가끔 사용<b>3</b></div>
+              <div class="fc-chips">
+                <span class="fc-chip mid">슬래시 커맨드 <span class="fc-n">8회</span></span>
+                <span class="fc-chip mid">플랜 모드 <span class="fc-n">7회</span></span>
+                <span class="fc-chip mid">웹 검색·페치 <span class="fc-n">5회 · 자동</span></span>
+              </div>
+            </div>
+            <div class="fc-group">
+              <div class="fc-glabel off"><span class="fc-dot"></span>미사용<b>9</b></div>
+              <div class="fc-chips">
+                <span class="fc-chip off">서브에이전트</span>
+                <span class="fc-chip off">확장 사고</span>
+                <span class="fc-chip off">이미지 입력</span>
+                <span class="fc-chip off">백그라운드 실행</span>
+                <span class="fc-chip off">@ 파일 멘션</span>
+                <span class="fc-chip off">/init</span>
+                <span class="fc-chip off">외부 CLI</span>
+                <span class="fc-chip off">반복 실행</span>
+                <span class="fc-chip off">커스텀 커맨드</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="as-cols3">
+          <div class="inv-col">
+            <p class="inv-title">CLAUDE.md</p>
+            <p class="inv-sum">4/6곳에 있음 · 바탕화면·홈 탐색</p>
+            <div class="inv-row"><span class="st on"></span><span class="inv-name">전역 ~/.claude</span><span class="inv-val ok">4.2KB</span></div>
+            <div class="inv-row"><span class="st on"></span><span class="inv-name">ai-usage-checkup</span><span class="inv-val ok">2.8KB</span></div>
+            <div class="inv-row"><span class="st on"></span><span class="inv-name">woowa_course</span><span class="inv-val ok">1.9KB</span></div>
+            <div class="inv-row"><span class="st on"></span><span class="inv-name">blog</span><span class="inv-val ok">1.2KB</span></div>
+            <div class="inv-row"><span class="st off"></span><span class="inv-name dim-name">algorithm-study</span><span class="inv-val dim">없음</span></div>
+            <div class="inv-row"><span class="st off"></span><span class="inv-name dim-name">side-project</span><span class="inv-val dim">없음</span></div>
+          </div>
+          <div class="inv-col">
+            <p class="inv-title">스킬 · 30일 호출</p>
+            <p class="inv-sum">6개 중 4개 호출됨</p>
+            <div class="inv-row"><span class="inv-name">rebuild-relaunch</span><div class="s-track"><div class="s-fill" style="width:100%"></div></div><span class="inv-val">21회</span></div>
+            <div class="inv-row"><span class="inv-name">diff-review</span><div class="s-track"><div class="s-fill" style="width:76%"></div></div><span class="inv-val">12회</span></div>
+            <div class="inv-row"><span class="inv-name">mission-retrospective</span><div class="s-track"><div class="s-fill" style="width:58%"></div></div><span class="inv-val">7회</span></div>
+            <div class="inv-row"><span class="inv-name">algo-study</span><div class="s-track"><div class="s-fill" style="width:38%"></div></div><span class="inv-val">3회</span></div>
+            <div class="inv-row"><span class="inv-name dim-name">panda</span><div class="s-track"></div><span class="inv-val dim">0회</span></div>
+            <div class="inv-row"><span class="inv-name dim-name">spec-check</span><div class="s-track"></div><span class="inv-val dim">0회</span></div>
+          </div>
+          <div class="inv-col">
+            <p class="inv-title">훅 <span class="as-hint">설정만 표시</span></p>
+            <p class="inv-sum">3개 설정됨</p>
+            <div class="hook-chip"><span class="hk-event">PostToolUse</span><code class="hk-cmd">python3 ~/.claude/hooks/retro-lint.py</code></div>
+            <div class="hook-chip"><span class="hk-event">PreToolUse</span><code class="hk-cmd">node scripts/ensure-nfd.mjs</code></div>
+            <div class="hook-chip"><span class="hk-event">Stop</span><code class="hk-cmd">afplay /System/Library/Sounds/Glass.aiff</code></div>
+          </div>
+        </div>
+      </div>
     </div>
     <p class="as-cap">실제 앱 리포트 화면 그대로 · 이 밖에 일별 토큰 차트, 축별 점수 근거, 점수 여정, PDF 저장이 함께 담깁니다.</p>
   </div>
 </section>
 
 <section id="rank">
-  <div class="wrap" style="text-align:center;">
-    <p class="eyebrow" style="text-align:center;">이렇게 진단해요 ③ 익명 랭킹</p>
+  <div class="wrap">
+    <p class="eyebrow">이렇게 진단해요 ③ 익명 랭킹</p>
     <h2>다른 사람들 사이에서 나는 어디쯤일까</h2>
-    <p class="lead" style="margin:0 auto 36px;">첫 분석 전에 참여할지 먼저 묻고, <b style="color:var(--ink)">동의한 경우에만</b> 점수가 올라갑니다. 보내는 건 숫자 점수와 내가 정한 닉네임뿐이고, 클로드와 코덱스는 별도 보드로 집계돼요. 거절해도 리포트는 그대로 볼 수 있습니다.</p>
+    <p class="lead" style="margin:0 0 36px;">첫 분석 전에 참여할지 먼저 묻고, <b style="color:var(--ink)">동의한 경우에만</b> 점수가 올라갑니다. 보내는 건 숫자 점수와 내가 정한 닉네임뿐이고, 클로드와 코덱스는 별도 보드로 집계돼요. 거절해도 리포트는 그대로 볼 수 있습니다.</p>
 
     <div class="ladder" aria-hidden="true">
       <!-- 9 tiers, ascending — 실제 앱 엠블럼 -->
@@ -588,22 +744,19 @@
 
 <section id="get" class="final">
   <div class="wrap">
-    <p class="eyebrow" style="text-align:center;">시작하기</p>
+    <p class="eyebrow">시작하기</p>
     <h2>지금 내 AI 사용 습관을 진단해 보세요</h2>
     <p class="lead">설치하고 분석 버튼 한 번이면, 최근 30일 기록으로 첫 리포트가 나옵니다. 로그인도 API 키도 없습니다.</p>
     <div class="cta">
-      <div class="mas">
-        <a class="mas-badge" href="https://apps.apple.com/kr/app/ai-%EB%A6%AC%ED%8F%AC%ED%8A%B8/id6780314426?mt=12" aria-label="Mac App Store에서 무료 다운로드">
-          <svg width="22" height="26" viewBox="0 0 22 26" aria-hidden="true">
-            <path d="M17.05 14.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13z M14.62 6.84c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44z"/>
-          </svg>
-          <span><span class="t1">무료 다운로드</span><br><span class="t2">Mac App Store</span></span>
-        </a>
-        <span class="mas-note">macOS (Apple Silicon) · 무료 · 오픈소스 (MIT)</span>
-      </div>
-      <a class="btn btn-ghost" href="https://github.com/JohnPrk/ai-usage-checkup/releases/latest">macOS .dmg 다운로드</a>
-      <a class="btn btn-ghost" href="https://github.com/JohnPrk/ai-usage-checkup">GitHub에서 보기</a>
+      <a class="mas-badge" href="https://apps.apple.com/kr/app/ai-%EB%A6%AC%ED%8F%AC%ED%8A%B8/id6780314426?mt=12" aria-label="Mac App Store에서 다운로드">
+        <svg width="22" height="26" viewBox="0 0 22 26" aria-hidden="true">
+          <path d="M17.05 14.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13z M14.62 6.84c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44z"/>
+        </svg>
+        <span class="t2">Mac App Store</span>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/JohnPrk/ai-usage-checkup/releases/latest">Windows 다운로드</a>
     </div>
+    <p class="mas-note">macOS (Apple Silicon) · 무료 · 오픈소스 (MIT)</p>
   </div>
 </section>
 
